@@ -1,16 +1,42 @@
 /**
  * シナリオ一覧画面（DESIGN.md §2, §9, §10）。
  * 上部にカテゴリ島マップ、島をタップするとそのカテゴリの5シナリオ（レベル1〜5）を表示し、
- * タップでレッスンを開始する。動的生成ボタンはM9で追加。
+ * タップでレッスンを開始する。
+ * ページ末尾の「✨ 新しいシナリオを作る」ボタンで動的生成（DESIGN.md §9最終項・M9）を行う。
+ * 生成シナリオ（source:'generated'）はscenarios stateに混ざって表示され、
+ * カテゴリ詳細の行に削除ボタンが付く。
  */
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { startConversation } from '../features/conversation/startConversation';
 import { ScenarioMap } from '../features/game/ScenarioMap';
+import { loadSisterData } from '../features/game/homeData';
 import { loadBundledScenarios } from '../features/scenarios/loadScenarios';
-import { getUserProfile, listConversations, listGeneratedScenarios } from '../lib/db';
-import type { Conversation, Scenario, ScenarioCategory } from '../lib/types';
+import { generateScenario } from '../features/scenarios/sonnetScenarioGen';
+import {
+  deleteScenario,
+  getUserProfile,
+  listConversations,
+  listGeneratedScenarios,
+  putScenario,
+} from '../lib/db';
+import type { AppLevel, Conversation, Scenario, ScenarioCategory, UserProfile } from '../lib/types';
+
+/** シナリオ一覧・会話履歴・ユーザープロフィールをまとめて取得する（初回ロード・再読込の両方で使う）。 */
+async function fetchScenarioPageData(): Promise<{
+  scenarios: Scenario[];
+  conversations: Conversation[];
+  profile: UserProfile;
+}> {
+  const [bundled, generated, convs, profile] = await Promise.all([
+    loadBundledScenarios(),
+    listGeneratedScenarios(),
+    listConversations(),
+    getUserProfile(),
+  ]);
+  return { scenarios: [...bundled, ...generated], conversations: convs, profile };
+}
 
 const CATEGORY_LABEL: Record<ScenarioCategory, string> = {
   travel: '旅行',
@@ -27,25 +53,23 @@ export function ScenariosPage() {
   const navigate = useNavigate();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [userLevel, setUserLevel] = useState(2);
+  const [userLevel, setUserLevel] = useState<AppLevel>(2);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<ScenarioCategory | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const [bundled, generated, convs, profile] = await Promise.all([
-          loadBundledScenarios(),
-          listGeneratedScenarios(),
-          listConversations(),
-          getUserProfile(),
-        ]);
+        const data = await fetchScenarioPageData();
         if (cancelled) return;
-        setScenarios([...bundled, ...generated]);
-        setConversations(convs);
-        setUserLevel(profile.level);
+        setScenarios(data.scenarios);
+        setConversations(data.conversations);
+        setUserLevel(data.profile.level);
+        setProfile(data.profile);
       } catch (e: unknown) {
         if (!cancelled) setMessage(e instanceof Error ? e.message : 'シナリオの読み込みに失敗しました。');
       }
@@ -54,6 +78,14 @@ export function ScenariosPage() {
       cancelled = true;
     };
   }, []);
+
+  const reload = async () => {
+    const data = await fetchScenarioPageData();
+    setScenarios(data.scenarios);
+    setConversations(data.conversations);
+    setUserLevel(data.profile.level);
+    setProfile(data.profile);
+  };
 
   const begin = async (scenario: Scenario) => {
     if (starting) return;
@@ -68,6 +100,51 @@ export function ScenariosPage() {
       navigate(`/talk/${result.conversationId}`);
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (generating) return;
+    const confirmed = window.confirm(
+      'Sonnet APIを1回使用して、あなた向けの新しいシナリオを作成します（費用の目安は数円程度です）。よろしいですか？',
+    );
+    if (!confirmed) return;
+
+    setGenerating(true);
+    setMessage(null);
+    try {
+      const sisterData = await loadSisterData();
+      const weakPhonemes = (sisterData?.weakPhonemes ?? []).map((w) => w.phoneme);
+      const existingTitles = scenarios.filter((s) => s.source === 'generated').map((s) => s.title);
+
+      const result = await generateScenario({
+        interests: profile?.interests ?? [],
+        weakPhonemes,
+        level: profile?.level ?? userLevel,
+        existingTitles,
+      });
+      if ('error' in result) {
+        setMessage(result.error);
+        return;
+      }
+
+      await putScenario(result);
+      await reload();
+      setMessage(`新しいシナリオ「${result.titleJa}」を作成しました。`);
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : 'シナリオの生成に失敗しました。');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDeleteGenerated = async (scenario: Scenario) => {
+    if (!window.confirm(`「${scenario.titleJa}」を削除します。よろしいですか？`)) return;
+    try {
+      await deleteScenario(scenario.id);
+      await reload();
+    } catch (e: unknown) {
+      setMessage(e instanceof Error ? e.message : 'シナリオの削除に失敗しました。');
     }
   };
 
@@ -103,27 +180,46 @@ export function ScenariosPage() {
               const stars = bestStars(s.id);
               const levelGap = Math.abs(s.level - userLevel);
               return (
-                <button
+                <div
                   key={s.id}
-                  type="button"
-                  onClick={() => void begin(s)}
-                  disabled={starting}
-                  className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white p-3 text-left active:border-hana-400 disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white p-3"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-neutral-800">{s.titleJa}</p>
-                    <p className="mt-0.5 text-xs text-neutral-400">
-                      レベル{s.level}
-                      {levelGap === 0 && ' ・ あなたにぴったり'}
-                      {levelGap >= 2 && ` ・ 現在のレベル${userLevel}と離れています`}
-                      {' ・ 約'}
-                      {s.estimatedMinutes}分
-                    </p>
-                  </div>
-                  <span className="ml-2 shrink-0 text-xs font-bold text-hana-500">
-                    {stars !== null ? '★'.repeat(Math.max(stars, 0)) || '―' : '未挑戦'}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => void begin(s)}
+                    disabled={starting}
+                    className="flex min-w-0 flex-1 items-center justify-between text-left active:opacity-70 disabled:opacity-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-neutral-800">
+                        {s.titleJa}
+                        {s.source === 'generated' && (
+                          <span className="ml-1 text-[10px] font-normal text-hana-500">✨生成</span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-xs text-neutral-400">
+                        レベル{s.level}
+                        {levelGap === 0 && ' ・ あなたにぴったり'}
+                        {levelGap >= 2 && ` ・ 現在のレベル${userLevel}と離れています`}
+                        {' ・ 約'}
+                        {s.estimatedMinutes}分
+                      </p>
+                    </div>
+                    <span className="ml-2 shrink-0 text-xs font-bold text-hana-500">
+                      {stars !== null ? '★'.repeat(Math.max(stars, 0)) || '―' : '未挑戦'}
+                    </span>
+                  </button>
+                  {s.source === 'generated' && (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteGenerated(s)}
+                      className="shrink-0 rounded-lg px-2 py-1 text-xs text-neutral-400 active:bg-neutral-100"
+                      aria-label={`${s.titleJa}を削除`}
+                    >
+                      削除
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -133,6 +229,23 @@ export function ScenariosPage() {
       <p className="text-xs text-neutral-400">
         島をタップするとシナリオ一覧が開きます。★はこれまでのベスト評価です。
       </p>
+
+      <section className="rounded-2xl border border-dashed border-hana-300 p-4 text-center">
+        <button
+          type="button"
+          onClick={() => void handleGenerate()}
+          disabled={generating}
+          className="inline-flex items-center gap-2 rounded-xl bg-hana-500 px-4 py-2 text-sm font-bold text-white active:bg-hana-600 disabled:opacity-50"
+        >
+          {generating && (
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+          )}
+          {generating ? '生成中…' : '✨ 新しいシナリオを作る'}
+        </button>
+        <p className="mt-2 text-xs text-neutral-400">
+          Sonnet APIを1回使って、あなたの興味・レベルに合わせた新しいシナリオを作成します。
+        </p>
+      </section>
     </div>
   );
 }
