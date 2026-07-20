@@ -4,6 +4,7 @@ import { AzureSpeechSection } from '../features/settings/AzureSpeechSection';
 import { BackupSection } from '../features/settings/BackupSection';
 import { CollapsibleSection } from '../features/settings/CollapsibleSection';
 import { PracticeSettingsSection } from '../features/settings/PracticeSettingsSection';
+import { SisterMockSection } from '../features/settings/SisterMockSection';
 import { UsageDashboardSection } from '../features/settings/UsageDashboardSection';
 import { VoiceSection } from '../features/settings/VoiceSection';
 
@@ -40,6 +41,12 @@ export function SettingsPage() {
       <CollapsibleSection title="アプリ情報">
         <AppInfoSection />
       </CollapsibleSection>
+
+      {import.meta.env.DEV ? (
+        <CollapsibleSection title="開発者: シャドとま連携モック" description="バックアップJSONから連携データのモックを設定（DEVのみ）">
+          <SisterMockSection />
+        </CollapsibleSection>
+      ) : null}
     </div>
   );
 }

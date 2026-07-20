@@ -1,19 +1,21 @@
 /**
- * ホーム画面（DESIGN.md §2）。
- * M3時点: 「今日のレッスン」（レベルに合ったバンドルシナリオ）とクイック会話の開始導線。
- * ストリーク・クエスト・おすすめ推薦・ボスはM7/M8で追加する。
+ * ホーム画面（DESIGN.md §2, §10）。
+ * 上から: コンビストリーク → 今日のレッスン(大カード) → クイック会話/ひとくち英会話 →
+ * デイリークエスト3件 → 週末ボス告知(土日のみ) → オンボーディング誘導バナー(未診断時)。
+ * データは features/game/homeData.ts の buildHomeData() に集約されている。
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { startConversation } from '../features/conversation/startConversation';
-import { loadBundledScenarios } from '../features/scenarios/loadScenarios';
-import { getUserProfile, listConversations } from '../lib/db';
-import type { ConversationMode, Scenario } from '../lib/types';
+import { buildHomeData, type HomeData } from '../features/game/homeData';
+import { QuestList } from '../features/game/QuestList';
+import { getQuestDescription } from '../lib/game/quests';
+import type { ConversationMode } from '../lib/types';
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [todayScenario, setTodayScenario] = useState<Scenario | null>(null);
+  const [data, setData] = useState<HomeData | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
@@ -21,18 +23,10 @@ export function HomePage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [profile, scenarios, recent] = await Promise.all([
-          getUserProfile(),
-          loadBundledScenarios(),
-          listConversations(50),
-        ]);
-        if (cancelled) return;
-        // 今日のレッスン: 自レベルの未完了シナリオから先頭を選ぶ（弱点ベースの推薦はM8で置換）
-        const completedIds = new Set(recent.filter((c) => c.status === 'completed').map((c) => c.scenarioId));
-        const candidates = scenarios.filter((s) => s.level === profile.level && !completedIds.has(s.id));
-        setTodayScenario(candidates[0] ?? scenarios.find((s) => s.level === profile.level) ?? scenarios[0] ?? null);
+        const result = await buildHomeData();
+        if (!cancelled) setData(result);
       } catch (e: unknown) {
-        if (!cancelled) setMessage(e instanceof Error ? e.message : 'シナリオの読み込みに失敗しました。');
+        if (!cancelled) setMessage(e instanceof Error ? e.message : 'ホームデータの読み込みに失敗しました。');
       }
     })();
     return () => {
@@ -40,12 +34,12 @@ export function HomePage() {
     };
   }, []);
 
-  const begin = async (mode: ConversationMode) => {
-    if (!todayScenario || starting) return;
+  const begin = async (mode: ConversationMode, scenarioId: string | undefined) => {
+    if (!scenarioId || starting) return;
     setStarting(true);
     setMessage(null);
     try {
-      const result = await startConversation(todayScenario.id, mode);
+      const result = await startConversation(scenarioId, mode);
       if (!result.ok) {
         setMessage(result.messageJa);
         return;
@@ -56,9 +50,35 @@ export function HomePage() {
     }
   };
 
+  if (!data) {
+    return (
+      <div className="flex flex-col gap-4 p-4">
+        <h1 className="text-xl font-bold text-neutral-800">はなとま</h1>
+        {message ? (
+          <p className="rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-800">{message}</p>
+        ) : (
+          <p className="text-sm text-neutral-400">読み込み中…</p>
+        )}
+      </div>
+    );
+  }
+
+  const todayScenario = data.recommended[0] ?? null;
+  const boss = data.boss;
+  const questsWithDescription = data.quests.quests.map((q) => ({
+    ...q,
+    descriptionJa: getQuestDescription(q.id),
+  }));
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <h1 className="text-xl font-bold text-neutral-800">はなとま</h1>
+
+      {/* コンビストリーク（DESIGN.md §10・§11: hanatoma∪shadotoma + お休みチケット） */}
+      <section className="flex items-center justify-between rounded-2xl bg-neutral-50 px-4 py-3">
+        <p className="text-sm font-semibold text-neutral-700">🔥 {data.streak.streak}日継続中</p>
+        <p className="text-xs text-neutral-400">🎫 お休みチケット {data.profile.restTickets}枚</p>
+      </section>
 
       {/* 今日のレッスン（主導線。§4: 1日1本・5〜10分で完結） */}
       <section className="rounded-2xl border border-hana-200 bg-hana-50 p-4">
@@ -72,7 +92,7 @@ export function HomePage() {
             </p>
             <button
               type="button"
-              onClick={() => void begin('lesson')}
+              onClick={() => void begin('lesson', todayScenario.id)}
               disabled={starting}
               className="mt-3 w-full rounded-full bg-hana-500 py-3 text-sm font-bold text-white active:bg-hana-600 disabled:bg-neutral-300"
             >
@@ -80,7 +100,7 @@ export function HomePage() {
             </button>
           </>
         ) : (
-          <p className="mt-2 text-sm text-neutral-400">シナリオを読み込み中…</p>
+          <p className="mt-2 text-sm text-neutral-400">おすすめできるシナリオが見つかりませんでした。</p>
         )}
       </section>
 
@@ -88,7 +108,7 @@ export function HomePage() {
       <section className="flex gap-2">
         <button
           type="button"
-          onClick={() => void begin('quick')}
+          onClick={() => void begin('quick', todayScenario?.id)}
           disabled={!todayScenario || starting}
           className="flex-1 rounded-xl border border-neutral-200 bg-white p-3 text-left disabled:opacity-50"
         >
@@ -97,7 +117,7 @@ export function HomePage() {
         </button>
         <button
           type="button"
-          onClick={() => void begin('bite')}
+          onClick={() => void begin('bite', todayScenario?.id)}
           disabled={!todayScenario || starting}
           className="flex-1 rounded-xl border border-neutral-200 bg-white p-3 text-left disabled:opacity-50"
         >
@@ -106,11 +126,44 @@ export function HomePage() {
         </button>
       </section>
 
-      {message && <p className="rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-800">{message}</p>}
+      {/* デイリークエスト */}
+      <section>
+        <p className="mb-2 text-sm font-bold text-neutral-800">デイリークエスト</p>
+        <QuestList quests={questsWithDescription} />
+      </section>
 
-      <p className="text-xs text-neutral-400">
-        ストリーク・デイリークエスト・おすすめシナリオはこれから追加されます（M7/M8）。
-      </p>
+      {/* 週末ボス告知（DESIGN.md §9: 土曜出現・日曜期限） */}
+      {boss && boss.available && (
+        <section className="rounded-2xl border border-hana-300 bg-hana-100 p-4">
+          <p className="text-xs font-semibold text-hana-700">👑 週末ボス（日曜まで）</p>
+          <h2 className="mt-1 text-base font-bold text-neutral-800">{boss.scenario.titleJa}</h2>
+          <p className="mt-0.5 text-xs text-neutral-500">レベル{boss.scenario.level}</p>
+          {boss.done ? (
+            <p className="mt-2 text-xs font-semibold text-hana-700">挑戦済みです。お疲れさまでした！</p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void begin('boss', boss.scenario.id)}
+              disabled={starting}
+              className="mt-3 w-full rounded-full bg-hana-600 py-3 text-sm font-bold text-white active:bg-hana-700 disabled:bg-neutral-300"
+            >
+              ボスに挑戦する
+            </button>
+          )}
+        </section>
+      )}
+
+      {/* オンボーディング誘導（診断未実施のみ） */}
+      {!data.onboardingDone && (
+        <Link
+          to="/onboarding"
+          className="rounded-xl border border-hana-200 bg-white p-3 text-sm text-hana-700 underline"
+        >
+          レベル診断テストを受けて、自分にぴったりの難易度から始めましょう →
+        </Link>
+      )}
+
+      {message && <p className="rounded-lg bg-yellow-50 px-3 py-2 text-xs text-yellow-800">{message}</p>}
     </div>
   );
 }
