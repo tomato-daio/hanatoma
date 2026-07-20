@@ -141,6 +141,7 @@ interface UserProfile {
   level: 1|2|3|4|5;
   levelHistory: { date: string; level: number; reason: 'diagnostic'|'promote'|'demote'|'manual' }[];
   xp: number;                    // 累計（ランクはxpから導出）
+  restTickets: number;           // お休みチケット保有数（0〜2。§10）
   badges: { id: string; earnedAt: number }[];
   interests: string[];           // オンボーディングで選択+自由入力
   diagnostic?: { date: string; cefr: string; comment: string };

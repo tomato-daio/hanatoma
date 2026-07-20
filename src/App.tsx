@@ -5,6 +5,7 @@ import { OnboardingPage } from './pages/OnboardingPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { ScenariosPage } from './pages/ScenariosPage';
+import { SelfTestPage } from './pages/SelfTestPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TalkPage } from './pages/TalkPage';
 
@@ -21,6 +22,7 @@ export function App() {
         </Route>
         <Route path="/talk/:conversationId" element={<TalkPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
+        <Route path="/selftest" element={<SelfTestPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>
