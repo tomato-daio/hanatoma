@@ -154,12 +154,23 @@ export function ProgressPage() {
         </p>
       </section>
 
-      {/* レベル(CEFR)とlevelHistory */}
+      {/* レベル(CEFR)・目安とlevelHistory（DESIGN.md §8d） */}
       <section className="rounded-2xl border border-neutral-200 p-4">
         <div className="flex items-baseline justify-between">
-          <p className="text-sm font-bold text-neutral-800">レベル {profile.level}</p>
-          <p className="text-xs text-neutral-400">CEFR {levelParams.cefr}</p>
+          <p className="text-sm font-bold text-neutral-800">
+            レベル {profile.level}
+            <span className="ml-1.5 rounded bg-hana-100 px-1.5 py-0.5 text-xs font-semibold text-hana-700">
+              {levelParams.labelJa}
+            </span>
+          </p>
+          <p className="text-xs text-neutral-400">CEFR {levelParams.cefr}相当</p>
         </div>
+        <p className="mt-2 text-xs text-neutral-600">{levelParams.guideJa}</p>
+        <p className="mt-1 text-xs text-neutral-400">試験の目安: {levelParams.benchmarkJa}</p>
+        <p className="mt-1 text-xs text-neutral-400">
+          AIの調整: 話す速さは{levelParams.ttsRateLabelJa}・日本語サポートは
+          {levelParams.japaneseSupportLabel}
+        </p>
         {sortedHistory.length > 0 ? (
           <ul className="mt-2 flex flex-col gap-1">
             {sortedHistory.slice(0, 5).map((h, idx) => (

@@ -41,6 +41,7 @@ import { getAnthropicApiKey } from '../settings/anthropicKeyConfig';
 import { nextAiTurn } from '../llm/haikuPartner';
 import type { RecordingResult } from '../recorder/useRecorder';
 import { getScenarioById } from '../scenarios/loadScenarios';
+import { buildPhraseHints } from './phraseHints';
 import { SpeechQueue, splitSentences } from './speechQueue';
 
 export type ConversationBusy = 'idle' | 'assessing' | 'thinking' | 'speaking';
@@ -395,8 +396,12 @@ export function useConversation(conversationId: string | undefined): UseConversa
         const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
         const tWav = performance.now();
 
-        // 発音評価（unscripted）。Azure失敗時は例外ではなくpa.azureErrorで返る契約
-        const result = await assessSpeech(wavBlob, { mode: 'unscripted' });
+        // 発音評価（unscripted）。Azure失敗時は例外ではなくpa.azureErrorで返る契約。
+        // フレーズヒント（§6a）: シナリオのキーフレーズ・模範解答を認識の文脈補助として渡す
+        const result = await assessSpeech(wavBlob, {
+          mode: 'unscripted',
+          phraseHints: scenario ? buildPhraseHints(scenario) : [],
+        });
         const tPa = performance.now();
         await addUsage(today, { paSeconds: Math.round(pcm.length / WHISPER_SAMPLE_RATE) });
 
@@ -442,7 +447,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
         processingRef.current = false;
       }
     },
-    [acceptUserTurn],
+    [acceptUserTurn, scenario],
   );
 
   const submitText = useCallback(
@@ -508,7 +513,12 @@ export function useConversation(conversationId: string | undefined): UseConversa
         }
         const pcm = await decodeToMono16k(recording.blob);
         const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
-        const result = await assessSpeech(wavBlob, { mode: 'scripted', referenceText: phraseEn });
+        // phraseHintsに参照文自身を渡し、参照文と認識テキストのズレを減らす（§6b）
+        const result = await assessSpeech(wavBlob, {
+          mode: 'scripted',
+          referenceText: phraseEn,
+          phraseHints: [phraseEn],
+        });
         await addUsage(today, { paSeconds: Math.round(pcm.length / WHISPER_SAMPLE_RATE) });
 
         if (result.pa.azureError) {

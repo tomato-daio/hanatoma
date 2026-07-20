@@ -48,6 +48,12 @@ export interface AssessSpeechOptions {
   mode: 'unscripted' | 'scripted';
   /** scripted時は必須（キーフレーズ文）。unscripted時は無視される。 */
   referenceText?: string;
+  /**
+   * 認識精度向上のためのフレーズヒント（DESIGN.md §6a）。PhraseListGrammar経由で
+   * 認識エンジンに「出やすい語句」として渡す（シナリオのキーフレーズ・模範解答等）。
+   * 発音スコアには直接影響せず、認識テキストの文脈補助のみ。空・未指定なら何もしない。
+   */
+  phraseHints?: string[];
 }
 
 export interface AssessSpeechResult {
@@ -396,6 +402,7 @@ async function recognizeOnce(
     referenceText: string;
     enableMiscue: boolean;
     enableProsody: boolean;
+    phraseHints: string[];
     apiKey: string;
     region: string;
   },
@@ -418,6 +425,11 @@ async function recognizeOnce(
   );
   pronunciationConfig.enableProsodyAssessment = opts.enableProsody;
   pronunciationConfig.applyTo(recognizer);
+
+  // フレーズヒント（DESIGN.md §6a）: シナリオで登場が予想される語句を認識エンジンへ渡す。
+  if (opts.phraseHints.length > 0) {
+    SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer).addPhrases(opts.phraseHints);
+  }
 
   const phrases: PhraseAssessment[] = [];
   /**
@@ -573,6 +585,7 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
       // enableMiscueはreferenceTextとの突き合わせ（挿入/省略の検出）機能のため、
       // scriptedのみ有効にする（DESIGN.md §6b。unscriptedでは参照文が無く意味を持たない）。
       enableMiscue: opts.mode === 'scripted',
+      phraseHints: (opts.phraseHints ?? []).map((h) => h.trim()).filter((h) => h.length > 0),
       apiKey,
       region,
     };

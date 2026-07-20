@@ -32,6 +32,14 @@ export interface LevelParams {
   japaneseSupport: JapaneseSupportKind;
   /** 日本語サポートの表示ラベル（DESIGN.md §8d表の文言そのまま）。 */
   japaneseSupportLabel: string;
+  /** レベルの短ラベル（入門〜上級。ホームのレベル行・進捗画面で表示）。 */
+  labelJa: string;
+  /** このレベルでできることの一文（進捗画面のレベルカードで表示）。 */
+  guideJa: string;
+  /** 外部試験での目安（文科省のCEFR対照表に基づく英検・TOEIC L&R相当）。 */
+  benchmarkJa: string;
+  /** ttsRateの日本語表現（進捗画面の「AIの調整」行で表示）。 */
+  ttsRateLabelJa: string;
 }
 
 /** レベル1〜5それぞれのパラメータ（DESIGN.md §8d表と1:1対応）。 */
@@ -45,6 +53,10 @@ export const LEVEL_PARAMS: Record<AppLevel, LevelParams> = {
     sentenceLengthInstruction: 'Keep each sentence to 8 words or fewer. Use short, simple sentences.',
     japaneseSupport: 'always-translation',
     japaneseSupportLabel: 'AI発話に和訳を常時併記',
+    labelJa: '入門',
+    guideJa: 'あいさつや自己紹介など、覚えた定型フレーズを使って簡単なやりとりができる段階です。',
+    benchmarkJa: '英検3級・TOEIC 〜220点くらい',
+    ttsRateLabelJa: 'かなりゆっくり',
   },
   2: {
     level: 2,
@@ -55,6 +67,10 @@ export const LEVEL_PARAMS: Record<AppLevel, LevelParams> = {
     sentenceLengthInstruction: 'Keep each sentence to 12 words or fewer.',
     japaneseSupport: 'always-hint',
     japaneseSupportLabel: 'ヒント常時表示',
+    labelJa: '初級',
+    guideJa: '買い物や注文など、日常の身近な用事を短い文でこなせる段階です。',
+    benchmarkJa: '英検準2級・TOEIC 225〜545点くらい',
+    ttsRateLabelJa: 'ゆっくり',
   },
   3: {
     level: 3,
@@ -65,6 +81,10 @@ export const LEVEL_PARAMS: Record<AppLevel, LevelParams> = {
     sentenceLengthInstruction: 'Use natural sentence length, as in an ordinary conversation.',
     japaneseSupport: 'button-hint',
     japaneseSupportLabel: 'ヒントはボタン',
+    labelJa: '中級',
+    guideJa: '旅行先のたいていの場面に対応でき、身近な話題で自分の意見を言える段階です。',
+    benchmarkJa: '英検2級・TOEIC 550〜780点くらい',
+    ttsRateLabelJa: '少しゆっくり',
   },
   4: {
     level: 4,
@@ -74,6 +94,10 @@ export const LEVEL_PARAMS: Record<AppLevel, LevelParams> = {
     sentenceLengthInstruction: 'Use natural sentence length; idiomatic phrasing is fine.',
     japaneseSupport: 'button-only',
     japaneseSupportLabel: 'ボタンのみ',
+    labelJa: '中上級',
+    guideJa: '幅広い話題で自然に会話でき、賛成・反対など込み入ったやりとりもできる段階です。',
+    benchmarkJa: '英検準1級・TOEIC 785〜940点くらい',
+    ttsRateLabelJa: '自然な速さ',
   },
   5: {
     level: 5,
@@ -83,6 +107,10 @@ export const LEVEL_PARAMS: Record<AppLevel, LevelParams> = {
     sentenceLengthInstruction: 'Speak at a native-level pace and complexity, as with a fluent adult.',
     japaneseSupport: 'none',
     japaneseSupportLabel: 'なし',
+    labelJa: '上級',
+    guideJa: '複雑な話題でも流ちょうに話せ、場面に応じて表現を使い分けられる段階です。',
+    benchmarkJa: '英検1級・TOEIC 945点〜くらい',
+    ttsRateLabelJa: '自然な速さ',
   },
 };
 

@@ -11,6 +11,7 @@ import { startConversation } from '../features/conversation/startConversation';
 import { buildHomeData, type HomeData } from '../features/game/homeData';
 import { QuestList } from '../features/game/QuestList';
 import { getQuestDescription } from '../lib/game/quests';
+import { getLevelParams } from '../lib/level/params';
 import type { ConversationMode } from '../lib/types';
 
 export function HomePage() {
@@ -74,10 +75,22 @@ export function HomePage() {
     <div className="flex flex-col gap-4 p-4">
       <h1 className="text-xl font-bold text-neutral-800">はなとま</h1>
 
-      {/* コンビストリーク（DESIGN.md §10・§11: hanatoma∪shadotoma + お休みチケット） */}
-      <section className="flex items-center justify-between rounded-2xl bg-neutral-50 px-4 py-3">
-        <p className="text-sm font-semibold text-neutral-700">🔥 {data.streak.streak}日継続中</p>
-        <p className="text-xs text-neutral-400">🎫 お休みチケット {data.profile.restTickets}枚</p>
+      {/* コンビストリーク（DESIGN.md §10・§11: hanatoma∪shadotoma + お休みチケット）と現在レベル（§8d） */}
+      <section className="rounded-2xl bg-neutral-50 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-neutral-700">🔥 {data.streak.streak}日継続中</p>
+          <p className="text-xs text-neutral-400">🎫 お休みチケット {data.profile.restTickets}枚</p>
+        </div>
+        <Link
+          to="/progress"
+          className="mt-2 flex items-center justify-between border-t border-neutral-200 pt-2"
+        >
+          <p className="text-xs font-semibold text-neutral-600">
+            📊 レベル{data.profile.level} {getLevelParams(data.profile.level).labelJa}（CEFR{' '}
+            {getLevelParams(data.profile.level).cefr}相当）
+          </p>
+          <p className="text-xs text-neutral-400">目安をみる →</p>
+        </Link>
       </section>
 
       {/* 今日のレッスン（主導線。§4: 1日1本・5〜10分で完結） */}

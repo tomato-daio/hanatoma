@@ -218,9 +218,11 @@ interface UsageDay {
 - **プロソディ・フォールバック**: 韻律有効で失敗したら韻律なしで1回だけ自動リトライ（japaneastで失敗実績あり）。両方失敗時のみエラー（`azureError` に errorDetails 先頭120字）
 - 音素スコアを集計し `weakPhonemes`（低スコア音素トップ3: 記号・平均点・例語最大2）を保存
 - PAエラー時も会話は継続する（認識テキストが取れなければ「聞き取れませんでした。もう一度どうぞ」表示。Haikuは呼ばない）
+- **フレーズヒント**（認識精度向上）: `assessSpeech` は `phraseHints?: string[]` を受け取り、`PhraseListGrammar.fromRecognizer(recognizer).addPhrases()` で認識エンジンに渡す。会話ターンではシナリオのキーフレーズ英文+全stepsのmodelAnswerを `buildPhraseHints`（`src/features/conversation/phraseHints.ts`・純関数・Vitest必須）で組み立てて渡す（なまりのある発話でもシナリオ文脈に沿った聞き取りになる。スコアの水増しではなく認識の文脈補助）。ヒントは重複除去（大文字小文字無視）・空除去のうえ最大40件
 
 ### 6b. scripted 発音評価（キーフレーズ予習用）
 - referenceText=キーフレーズ文。enableMiscue=true。他は6aと同じ。completenessScoreあり
+- phraseHints にはキーフレーズ文そのものを1件渡す（参照文と認識のズレを減らす）
 
 ### 6c. Neural TTS `azureTts.ts`
 - `SpeechSynthesizer` + `speakSsmlAsync`。**speaker直接出力はせず** audioData(ArrayBuffer) を統一AudioContextで再生（iOS再生アンロック制御のため）
@@ -276,6 +278,8 @@ interface UsageDay {
 | 5 | C1 | 制限なし・慣用的 | 0% | ネイティブ相当 | なし |
 
 このテーブルが Haiku system と TTS SSML の両方に注入される唯一の難易度ソース。
+
+各レベルには日本語の目安表示用フィールドも持たせる（`labelJa`=入門〜上級の短ラベル / `guideJa`=できることの一文 / `benchmarkJa`=英検・TOEIC相当 / `ttsRateLabelJa`=話速の日本語表現）。ホーム（ストリーク欄下のレベル行→進捗へのリンク）と進捗画面（レベルカードに目安・AI調整内容）に表示する。
 
 ## 9. シナリオシステム
 
