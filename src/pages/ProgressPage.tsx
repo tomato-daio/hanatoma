@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { BadgeShelf } from '../features/game/BadgeShelf';
 import { buildStreakInfo, loadSisterData } from '../features/game/homeData';
+import { getReviewDates } from '../features/review/reviewStore';
 import { getUserProfile, listConversations } from '../lib/db';
 import { learningDate } from '../lib/dates';
 import { RANK_NAMES, rankFromXp, xpForRank } from '../lib/game/xp';
@@ -27,6 +28,7 @@ interface ProgressData {
   profile: UserProfile;
   conversations: Conversation[];
   shadotomaDates: string[];
+  reviewDates: string[];
   ticketDays: string[];
 }
 
@@ -70,19 +72,24 @@ export function ProgressPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const [profile, conversations, sisterData] = await Promise.all([
+        const [profile, conversations, sisterData, reviewDates] = await Promise.all([
           getUserProfile(),
           listConversations(),
           loadSisterData(),
+          getReviewDates(),
         ]);
         if (cancelled) return;
 
         const today = learningDate(new Date());
-        const hanatomaDates = conversations.filter((c) => c.status === 'completed').map((c) => c.date);
+        // 練習日 = 会話完了日 ∪ サイレント復習の完走日（DESIGN.md §10）
+        const hanatomaDates = [
+          ...conversations.filter((c) => c.status === 'completed').map((c) => c.date),
+          ...reviewDates,
+        ];
         const shadotomaDates = sisterData?.practiceDates ?? [];
         const streak = buildStreakInfo(hanatomaDates, shadotomaDates, profile.restTickets, today);
 
-        setData({ profile, conversations, shadotomaDates, ticketDays: streak.usedOn });
+        setData({ profile, conversations, shadotomaDates, reviewDates, ticketDays: streak.usedOn });
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : '進捗の読み込みに失敗しました。');
       }
@@ -110,7 +117,7 @@ export function ProgressPage() {
     );
   }
 
-  const { profile, conversations, shadotomaDates, ticketDays } = data;
+  const { profile, conversations, shadotomaDates, reviewDates, ticketDays } = data;
 
   const rank = rankFromXp(profile.xp);
   const rankName = RANK_NAMES[rank];
@@ -127,6 +134,7 @@ export function ProgressPage() {
   const today = learningDate(new Date());
   const calendarDates = buildCalendarDates(today);
   const hanatomaSet = new Set(conversations.filter((c) => c.status === 'completed').map((c) => c.date));
+  const reviewSet = new Set(reviewDates);
   const shadotomaSet = new Set(shadotomaDates);
   const ticketSet = new Set(ticketDays);
 
@@ -194,19 +202,22 @@ export function ProgressPage() {
           {calendarDates.map((date) => {
             const isTicket = ticketSet.has(date);
             const isHanatoma = hanatomaSet.has(date);
-            const isShadotomaOnly = !isHanatoma && shadotomaSet.has(date);
+            const isReviewOnly = !isHanatoma && reviewSet.has(date);
+            const isShadotomaOnly = !isHanatoma && !isReviewOnly && shadotomaSet.has(date);
             const cellClass = isHanatoma
               ? 'bg-hana-500'
-              : isShadotomaOnly
-                ? 'bg-hana-200'
-                : 'bg-neutral-100';
+              : isReviewOnly
+                ? 'bg-hana-300'
+                : isShadotomaOnly
+                  ? 'bg-hana-200'
+                  : 'bg-neutral-100';
             return (
               <div
                 key={date}
                 title={date}
                 className={`flex h-6 w-6 items-center justify-center rounded text-[9px] ${cellClass}`}
               >
-                {isTicket && !isHanatoma && !isShadotomaOnly ? '🎫' : ''}
+                {isTicket && !isHanatoma && !isReviewOnly && !isShadotomaOnly ? '🎫' : ''}
               </div>
             );
           })}
@@ -215,6 +226,10 @@ export function ProgressPage() {
           <span className="flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded bg-hana-500" />
             はなとまで練習
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-3 w-3 rounded bg-hana-300" />
+            復習のみ
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block h-3 w-3 rounded bg-hana-200" />

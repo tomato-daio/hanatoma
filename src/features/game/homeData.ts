@@ -22,6 +22,8 @@ import {
 import { learningDate } from '../../lib/dates';
 import { applyRestTickets } from '../../lib/game/streakUnion';
 import { pickDailyQuests } from '../../lib/game/quests';
+import { countReviewQueue } from '../../lib/review/reviewCards';
+import { getReviewDates, loadReviewDeck } from '../review/reviewStore';
 import { loadBundledScenarios } from '../scenarios/loadScenarios';
 import { getSisterData, type SisterData } from '../sisterApp/shadotomaBridge';
 import { recommendScenarios } from '../sisterApp/recommend';
@@ -56,6 +58,8 @@ export interface HomeData {
   recommended: Scenario[];
   boss: WeeklyBoss | null;
   onboardingDone: boolean;
+  /** サイレント復習（§4b）: 期限が来たカード枚数と今日始められる新規カード枚数（ホームのバッジ用）。 */
+  review: { due: number; fresh: number };
 }
 
 // ---- 姉妹アプリ連携 ----
@@ -184,7 +188,9 @@ export async function buildHomeData(): Promise<HomeData> {
   const completed = conversations.filter((c) => c.status === 'completed');
   const completedIds = completed.map((c) => c.scenarioId);
   const completedIdSet = new Set(completedIds);
-  const hanatomaDates = Array.from(new Set(completed.map((c) => c.date)));
+  // 練習日 = 会話を完了した日 ∪ サイレント復習セットを完走した日（DESIGN.md §10）
+  const reviewDates = await getReviewDates();
+  const hanatomaDates = Array.from(new Set([...completed.map((c) => c.date), ...reviewDates]));
 
   const sisterData = await loadSisterData();
   const shadotomaDates = sisterData?.practiceDates ?? [];
@@ -204,6 +210,9 @@ export async function buildHomeData(): Promise<HomeData> {
   }
 
   const recommended = await recommend(scenarios, completedIdSet, profile.level, weakPhonemeCodes);
+
+  const reviewDeck = await loadReviewDeck();
+  const review = countReviewQueue(reviewDeck.cards, reviewDeck.stats, today);
 
   const bossScenario = selectWeeklyBoss(weekId, profile.level, scenarios, completedIds);
   const boss: WeeklyBoss | null = bossScenario
@@ -225,5 +234,6 @@ export async function buildHomeData(): Promise<HomeData> {
     recommended,
     boss,
     onboardingDone: onboardingDoneRaw ?? false,
+    review,
   };
 }

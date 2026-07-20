@@ -139,6 +139,25 @@ export interface ExpressionItem {
   lastUsedAt?: number;
 }
 
+/**
+ * サイレント復習のSRS状態1カードぶん（DESIGN.md §4b。SM-2簡略版）。
+ * キーは ReviewCard.key（'ex:<ExpressionItem.id>' | 'kp:<scenarioId>:<en小文字>'）で、
+ * appState 'reviewStats' に ReviewStats として1レコード保存する（バックアップに自動的に含まれる）。
+ */
+export interface ReviewCardStat {
+  repetition: number; // 連続「覚えてた」回数（「まだ」で0に戻る）
+  easeFactor: number; // 易しさ係数（初期2.5・下限1.3。「まだ」ごとに-0.2）
+  intervalDays: number; // 現在の出題間隔（日）
+  dueDate: string; // 次回出題期限の学習日 (YYYY-MM-DD)
+  reviewCount: number; // 判定した総回数
+  againCount: number; // 「まだ」を選んだ総回数
+  firstReviewedDate: string; // 初めて出題された学習日（新規カードの日次上限の判定に使う）
+  lastReviewedAt: number; // 最後に判定したepoch ms
+}
+
+/** サイレント復習の全カードのSRS状態（key = ReviewCard.key）。 */
+export type ReviewStats = Record<string, ReviewCardStat>;
+
 export interface UserProfile {
   key: 'main';
   level: AppLevel;

@@ -139,6 +139,23 @@ export function HomePage() {
         </button>
       </section>
 
+      {/* サイレント復習（DESIGN.md §4b: 声を出せない場所向け・間隔反復） */}
+      <Link to="/review" className="rounded-xl border border-neutral-200 bg-white p-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-neutral-700">🤫 サイレント復習</p>
+          {data.review.due > 0 ? (
+            <span className="rounded-full bg-hana-100 px-2 py-0.5 text-xs font-bold text-hana-700">
+              期限がきたカード {data.review.due}枚
+            </span>
+          ) : data.review.fresh > 0 ? (
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-500">
+              新しいカード {data.review.fresh}枚
+            </span>
+          ) : null}
+        </div>
+        <p className="mt-0.5 text-xs text-neutral-400">1〜2分・声を出さずにカードで復習（電車でもOK）</p>
+      </Link>
+
       {/* デイリークエスト */}
       <section>
         <p className="mb-2 text-sm font-bold text-neutral-800">デイリークエスト</p>

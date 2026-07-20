@@ -37,6 +37,7 @@ import type { Conversation, CorrectionReport, Scenario } from '../../lib/types';
 import { buildStreakInfo, getIsoWeekId, loadSisterData } from '../game/homeData';
 import type { SessionSummary } from '../game/sessionSummary';
 import { generateCorrectionReport } from '../report/generateReport';
+import { getReviewDates } from '../review/reviewStore';
 import { getScenarioById } from '../scenarios/loadScenarios';
 
 const MAX_REST_TICKETS = 2;
@@ -143,11 +144,15 @@ export async function runSessionEnd(
 
   // --- 4. ストリーク → XP ---
   // 今完了したセッションを含めた練習日集合でストリークを出す
+  // （サイレント復習のみの日も練習日に含める。DESIGN.md §10）
   const allConversations = await listConversations();
   const hanatomaDates = allConversations
     .filter((c) => c.status === 'completed' || c.id === conversation.id)
     .map((c) => c.date);
   if (!hanatomaDates.includes(today)) hanatomaDates.push(today);
+  for (const d of await getReviewDates()) {
+    if (!hanatomaDates.includes(d)) hanatomaDates.push(d);
+  }
   const streakInfo = buildStreakInfo(
     hanatomaDates,
     sisterData?.practiceDates ?? [],

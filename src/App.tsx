@@ -4,6 +4,7 @@ import { HomePage } from './pages/HomePage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { ProgressPage } from './pages/ProgressPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { ReviewPage } from './pages/ReviewPage';
 import { ScenariosPage } from './pages/ScenariosPage';
 import { SelfTestPage } from './pages/SelfTestPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -21,6 +22,7 @@ export function App() {
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="/talk/:conversationId" element={<TalkPage />} />
+        <Route path="/review" element={<ReviewPage />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/selftest" element={<SelfTestPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

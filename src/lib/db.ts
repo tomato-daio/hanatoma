@@ -11,6 +11,7 @@ import type {
   DailyCaps,
   ExpressionItem,
   QuestState,
+  ReviewStats,
   Scenario,
   UsageDay,
   UserProfile,
@@ -20,8 +21,10 @@ import type {
  * appStateに保存する値の型（DESIGN.md §3末尾のkeys一覧に対応）。
  * types.tsには存在しないため、shadotoma同様このファイルで定義する
  * （appStateは素朴なkey-valueであり、DBSchemaの都合以外でtypes.tsに置く理由が無いため）。
+ * ReviewStats（'reviewStats'）とreviewDates（string[]）はサイレント復習（DESIGN.md §4b）が使う。
+ * appStateはスキーマレスなためDBバージョンは1のまま。
  */
-export type AppStateValue = string | number | boolean | string[] | DailyCaps;
+export type AppStateValue = string | number | boolean | string[] | DailyCaps | ReviewStats;
 
 interface AppStateRecord {
   key: string;

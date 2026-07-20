@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { deleteExpression, listExpressions } from '../../lib/db';
 import type { ExpressionItem } from '../../lib/types';
 
@@ -39,26 +40,36 @@ export function ExpressionNotebook() {
   }
 
   return (
-    <ul className="flex flex-col gap-2">
-      {items.map((item) => (
-        <li key={item.id} className="rounded-xl border border-neutral-200 p-3">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold text-neutral-800">{item.en}</p>
-              <p className="text-xs text-neutral-500">{item.ja}</p>
-              {item.note ? <p className="mt-1 text-xs text-neutral-400">{item.note}</p> : null}
+    <div className="flex flex-col gap-3">
+      <Link
+        to="/review"
+        className="rounded-xl border border-hana-200 bg-hana-50 px-3 py-2 text-sm font-semibold text-hana-700"
+      >
+        🤫 サイレント復習をはじめる（声を出さずにカードで復習）
+      </Link>
+      <ul className="flex flex-col gap-2">
+        {items.map((item) => (
+          <li key={item.id} className="rounded-xl border border-neutral-200 p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-neutral-800">{item.en}</p>
+                <p className="text-xs text-neutral-500">{item.ja}</p>
+                {item.note ? <p className="mt-1 text-xs text-neutral-400">{item.note}</p> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleDelete(item.id)}
+                className="shrink-0 text-xs text-neutral-400"
+              >
+                削除
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleDelete(item.id)}
-              className="shrink-0 text-xs text-neutral-400"
-            >
-              削除
-            </button>
-          </div>
-          {item.useCount > 0 ? <p className="mt-1 text-[10px] text-hana-600">使用 {item.useCount}回</p> : null}
-        </li>
-      ))}
-    </ul>
+            {item.useCount > 0 ? (
+              <p className="mt-1 text-[10px] text-hana-600">使用 {item.useCount}回</p>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
