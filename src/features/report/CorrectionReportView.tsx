@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { getConversation, listCorrectionReports } from '../../lib/db';
 import type { CorrectionItem, CorrectionReport } from '../../lib/types';
 import { getScenarioById } from '../scenarios/loadScenarios';
+import { PracticeInShadotomaButton } from '../sisterApp/PracticeInShadotomaButton';
 
 interface ReportRow {
   report: CorrectionReport;
@@ -144,15 +145,7 @@ function CorrectionReportDetail({ report, onBack }: { report: CorrectionReport; 
         </section>
       ) : null}
 
-      {/* 「シャドとまで練習する」はM8担当がexportToShadotoma.tsと結線する。ここではボタンの場所だけ用意する。 */}
-      <button
-        type="button"
-        disabled
-        title="連携準備中（M8で実装予定）"
-        className="rounded-xl bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-400"
-      >
-        シャドとまで練習する
-      </button>
+      <PracticeInShadotomaButton report={report} />
     </div>
   );
 }

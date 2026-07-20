@@ -9,9 +9,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { HintPanel } from '../features/conversation/HintPanel';
 import { KeyPhrasePanel } from '../features/conversation/KeyPhrasePanel';
 import { MicButton } from '../features/conversation/MicButton';
+import { runSessionEnd } from '../features/conversation/sessionEnd';
 import { TextInputBar } from '../features/conversation/TextInputBar';
 import { TurnList } from '../features/conversation/TurnList';
 import { useConversation } from '../features/conversation/useConversation';
+import { RewardScreen } from '../features/game/RewardScreen';
+import type { SessionSummary } from '../features/game/sessionSummary';
 
 export function TalkPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -19,6 +22,10 @@ export function TalkPage() {
   const conv = useConversation(conversationId);
   const [inputMode, setInputMode] = useState<'voice' | 'text'>('voice');
   const [confirmingExit, setConfirmingExit] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [hasReport, setHasReport] = useState(false);
 
   // 終了操作なしで画面を離れたら中断扱いにする（§4: 再開はさせない単純さ優先）
   const finishedRef = useRef(false);
@@ -30,11 +37,33 @@ export function TalkPage() {
     };
   }, []);
 
+  // 会話終了 → セッション終了パイプライン（添削レポート・XP・クエスト・バッジ・レベル）→ リワード画面
   const handleFinish = async () => {
     finishedRef.current = true;
-    await conv.finish();
-    // M4でレポート画面へ遷移させる。M3ではホームへ戻る
-    navigate('/');
+    setConfirmingExit(false);
+    setFinishing(true);
+    try {
+      const finished = await conv.finish();
+      if (!finished) {
+        navigate('/');
+        return;
+      }
+      const result = await runSessionEnd(finished, conv.modelAnswersShown);
+      if (result.reportError) setReportError(result.reportError);
+      setHasReport(result.report !== null);
+      setSummary(result.summary);
+    } catch (e: unknown) {
+      // パイプライン失敗でも会話の完了保存は済んでいる。ホームへ戻す
+      console.warn('sessionEnd failed', e);
+      navigate('/');
+    } finally {
+      setFinishing(false);
+    }
+  };
+
+  const handleRewardClose = () => {
+    // レポートが作れたときはレポートタブへ、それ以外はホームへ
+    navigate(hasReport ? '/reports' : '/');
   };
 
   const busy = conv.busy !== 'idle' || conv.loading;
@@ -161,13 +190,34 @@ export function TalkPage() {
       </footer>
       )}
 
+      {/* セッション終了処理中のオーバーレイ */}
+      {finishing && (
+        <div className="fixed inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/50 p-6">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-hana-300 border-t-hana-600" />
+          <p className="text-sm font-semibold text-white">添削レポートを作成中…</p>
+          <p className="text-xs text-white/70">会話の内容をAIが細かくチェックしています</p>
+        </div>
+      )}
+
+      {/* リワード画面（XP・★・新表現・バッジ・クエスト） */}
+      {summary && (
+        <>
+          <RewardScreen summary={summary} onClose={handleRewardClose} />
+          {reportError && (
+            <p className="fixed inset-x-4 bottom-4 z-40 rounded-lg bg-yellow-100 px-3 py-2 text-xs text-yellow-800">
+              添削レポートは作成できませんでした: {reportError}
+            </p>
+          )}
+        </>
+      )}
+
       {/* 終了確認 */}
       {confirmingExit && (
         <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-6">
           <div className="w-full max-w-sm rounded-2xl bg-white p-5">
             <p className="text-sm font-semibold text-neutral-800">会話を終えますか？</p>
             <p className="mt-1 text-xs text-neutral-500">
-              ここまでの会話は保存されます。（添削レポートはM4で追加予定）
+              終えるとAIが会話全体を添削してレポートを作り、XPやクエストが集計されます。
             </p>
             <div className="mt-4 flex gap-2">
               <button

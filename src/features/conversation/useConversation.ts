@@ -102,7 +102,7 @@ export interface UseConversationResult {
   markRecordStart: () => void;
   submitVoice: (recording: RecordingResult) => Promise<void>;
   submitText: (text: string) => Promise<void>;
-  finish: () => Promise<void>;
+  finish: () => Promise<Conversation | null>;
   abandon: () => Promise<void>;
   latency: TurnLatency | null;
   /** ユーザーの現在のアプリレベル（ヒント表示・TTS速度の参照用）。 */
@@ -551,9 +551,11 @@ export function useConversation(conversationId: string | undefined): UseConversa
     await runAiTurn();
   }, [runAiTurn]);
 
-  const finish = useCallback(async () => {
+  const finish = useCallback(async (): Promise<Conversation | null> => {
     queueRef.current?.stop();
     await persist({ status: 'completed', finishedAt: Date.now() });
+    // セッション終了パイプライン(sessionEnd.ts)が完了後の最新レコードを必要とするため返す
+    return conversationRef.current;
   }, [persist]);
 
   const abandon = useCallback(async () => {

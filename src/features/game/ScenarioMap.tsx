@@ -36,6 +36,8 @@ const UNLOCK_STAR_THRESHOLD = 3;
 interface ScenarioMapProps {
   scenarios: Scenario[];
   conversations: Conversation[];
+  /** 島タップ時のコールバック（指定時のみ島がタップ可能になる。シナリオ一覧ページで使用）。 */
+  onSelectCategory?: (category: ScenarioCategory) => void;
 }
 
 interface IslandSummary {
@@ -74,7 +76,7 @@ function buildIslands(scenarios: Scenario[], starMap: Map<string, 0 | 1 | 2 | 3>
   }));
 }
 
-export function ScenarioMap({ scenarios, conversations }: ScenarioMapProps) {
+export function ScenarioMap({ scenarios, conversations, onSelectCategory }: ScenarioMapProps) {
   const starMap = bestStarsByScenario(conversations);
   const islands = buildIslands(scenarios, starMap);
 
@@ -82,12 +84,16 @@ export function ScenarioMap({ scenarios, conversations }: ScenarioMapProps) {
     <div className="grid grid-cols-2 gap-3">
       {islands.map((island) => {
         const meta = CATEGORY_META[island.category];
+        const Tag = onSelectCategory ? 'button' : 'div';
         return (
-          <div
+          <Tag
             key={island.category}
-            className={`rounded-2xl border p-3 ${
+            {...(onSelectCategory
+              ? { type: 'button' as const, onClick: () => onSelectCategory(island.category) }
+              : {})}
+            className={`rounded-2xl border p-3 text-left ${
               island.unlocked ? 'border-hana-200 bg-hana-50' : 'border-neutral-200 bg-neutral-50'
-            }`}
+            } ${onSelectCategory ? 'active:border-hana-400' : ''}`}
           >
             <div className="flex items-center justify-between">
               <span className="text-2xl" aria-hidden="true">
@@ -125,7 +131,7 @@ export function ScenarioMap({ scenarios, conversations }: ScenarioMapProps) {
             {!island.unlocked && (
               <p className="mt-1 text-[10px] text-neutral-400">前の島で★3以上ためると解放</p>
             )}
-          </div>
+          </Tag>
         );
       })}
     </div>
