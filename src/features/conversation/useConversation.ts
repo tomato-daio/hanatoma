@@ -28,8 +28,10 @@ import {
   DEFAULT_DAILY_CAPS,
   type AppLevel,
   type Conversation,
+  type ConversationMode,
   type ConversationPhase,
   type DailyCaps,
+  type PaResult,
   type Scenario,
   type ScenarioStep,
   type Turn,
@@ -71,8 +73,17 @@ export interface UseConversationResult {
   loading: boolean;
   scenario: Scenario | null;
   conversation: Conversation | null;
+  mode: ConversationMode;
   turns: Turn[];
   phase: ConversationPhase;
+  /** AIとの対話が始まっているか（lessonモードはキーフレーズ予習後にbeginDialogueで開始）。 */
+  dialogueStarted: boolean;
+  /** lessonモードでキーフレーズ予習を終えて対話を開始する（予習スキップ時も呼ぶ）。 */
+  beginDialogue: () => Promise<void>;
+  /** キーフレーズ予習の1回分（scripted発音評価）。結果を返しAIターンは起こさない。 */
+  submitKeyPhrase: (phraseEn: string, recording: RecordingResult) => Promise<PaResult | null>;
+  /** biteモードで1往復が済み、完了ボタンを出してよい状態。 */
+  biteComplete: boolean;
   stepIndex: number;
   /** ガイドフェーズの現在ステップ（フリー会話ではnull）。 */
   currentStep: ScenarioStep | null;
@@ -113,6 +124,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
   const [modelAnswersShown, setModelAnswersShown] = useState(0);
   const [latency, setLatency] = useState<TurnLatency | null>(null);
   const [level, setLevel] = useState<AppLevel>(2);
+  const [dialogueStarted, setDialogueStarted] = useState(false);
 
   // レンダリングに影響しない進行中データはrefで持つ
   const turnsRef = useRef<Turn[]>([]);
@@ -289,19 +301,30 @@ export function useConversation(conversationId: string | undefined): UseConversa
         levelRef.current = profile.level;
         setLevel(profile.level);
 
-        // 途中再開はさせない仕様（§4）だが、activeな既存レコードを開いた場合は続きから表示だけする
-        const userTurnCount = conv.turns.filter((t) => t.role === 'user').length;
-        const nextStep = Math.min(userTurnCount, sc.steps.length);
+        // 途中再開はさせない仕様（§4）だが、activeな既存レコードを開いた場合は続きから表示だけする。
+        // ガイドステップの進行はキーフレーズ予習ターンを除いた対話ターン数で数える
+        const dialogueUserTurns = conv.turns.filter(
+          (t) => t.role === 'user' && t.phase !== 'keyphrase',
+        ).length;
+        const nextStep = Math.min(dialogueUserTurns, sc.steps.length);
         stepIndexRef.current = nextStep;
         setStepIndex(nextStep);
-        const startPhase: ConversationPhase = nextStep >= sc.steps.length ? 'free' : 'guided';
+        // biteモードはガイドを使わず最初からフリー会話（§4: 1往復だけの最小単位）
+        const startPhase: ConversationPhase =
+          conv.mode === 'bite' || nextStep >= sc.steps.length ? 'free' : 'guided';
         phaseRef.current = startPhase;
         setPhase(startPhase);
 
+        const hasDialogue = conv.turns.some((t) => t.phase !== 'keyphrase');
+        dialogueStartedRef.current = hasDialogue;
+        setDialogueStarted(hasDialogue);
+
         setLoading(false);
 
-        // まだAIが話していなければ開幕の一言を生成
-        if (conv.turns.length === 0 && conv.status === 'active') {
+        // lessonモードはキーフレーズ予習が先（beginDialogue待ち）。quick/biteは即AIが話し始める
+        if (!hasDialogue && conv.status === 'active' && conv.mode !== 'lesson') {
+          dialogueStartedRef.current = true;
+          setDialogueStarted(true);
           await runAiTurn();
         }
       } catch (e: unknown) {
@@ -465,6 +488,69 @@ export function useConversation(conversationId: string | undefined): UseConversa
     recordStartAtRef.current = Date.now();
   }, []);
 
+  // --- キーフレーズ予習（lessonモード。scripted発音評価・AIターンは起こさない） ---
+  const submitKeyPhrase = useCallback(
+    async (phraseEn: string, recording: RecordingResult): Promise<PaResult | null> => {
+      if (processingRef.current) return null;
+      processingRef.current = true;
+      setError(null);
+      setInfo(null);
+      const wakeLock = wakeLockRef.current;
+      await wakeLock.acquire();
+      try {
+        setBusy('assessing');
+        const today = learningDate(new Date());
+        const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
+        const usage = await getUsageDay(today);
+        if (!canRunPa(usage, caps)) {
+          setInfo('今日の発音評価の上限に達しました（設定で変更できます）。');
+          return null;
+        }
+        const pcm = await decodeToMono16k(recording.blob);
+        const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
+        const result = await assessSpeech(wavBlob, { mode: 'scripted', referenceText: phraseEn });
+        await addUsage(today, { paSeconds: Math.round(pcm.length / WHISPER_SAMPLE_RATE) });
+
+        if (result.pa.azureError) {
+          setInfo(`発音評価でエラーが発生しました: ${result.pa.azureError}`);
+          return null;
+        }
+
+        const saveAudio = (await getAppState<boolean>('saveTurnAudio')) ?? true;
+        const turn: Turn = {
+          role: 'user',
+          // キーフレーズターンのtextは参照文（お手本のフレーズ）を保存する。
+          // どのフレーズの練習かの逆引きと「全フレーズ✓」判定（XP計算）に使う
+          text: phraseEn,
+          at: Date.now(),
+          phase: 'keyphrase',
+          inputMode: 'voice',
+          ...(saveAudio ? { audioBlob: recording.blob, mimeType: recording.mimeType } : {}),
+          pa: result.pa,
+        };
+        await appendTurn(turn);
+        return result.pa;
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : '音声の処理に失敗しました。');
+        return null;
+      } finally {
+        setBusy('idle');
+        wakeLock.release();
+        processingRef.current = false;
+      }
+    },
+    [appendTurn],
+  );
+
+  // --- キーフレーズ予習を終えて対話開始（多重呼び出しは無視） ---
+  const dialogueStartedRef = useRef(false);
+  const beginDialogue = useCallback(async () => {
+    if (dialogueStartedRef.current) return;
+    dialogueStartedRef.current = true;
+    setDialogueStarted(true);
+    await runAiTurn();
+  }, [runAiTurn]);
+
   const finish = useCallback(async () => {
     queueRef.current?.stop();
     await persist({ status: 'completed', finishedAt: Date.now() });
@@ -477,12 +563,20 @@ export function useConversation(conversationId: string | undefined): UseConversa
     }
   }, [persist]);
 
+  const mode: ConversationMode = conversation?.mode ?? 'lesson';
+  const dialogueUserTurnCount = turns.filter((t) => t.role === 'user' && t.phase !== 'keyphrase').length;
+
   return {
     loading,
     scenario,
     conversation,
+    mode,
     turns,
     phase,
+    dialogueStarted,
+    beginDialogue,
+    submitKeyPhrase,
+    biteComplete: mode === 'bite' && dialogueUserTurnCount >= 1 && busy === 'idle',
     stepIndex,
     currentStep: phase === 'guided' && scenario ? (scenario.steps[stepIndex] ?? null) : null,
     busy,

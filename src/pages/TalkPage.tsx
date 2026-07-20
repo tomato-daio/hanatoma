@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { HintPanel } from '../features/conversation/HintPanel';
+import { KeyPhrasePanel } from '../features/conversation/KeyPhrasePanel';
 import { MicButton } from '../features/conversation/MicButton';
 import { TextInputBar } from '../features/conversation/TextInputBar';
 import { TurnList } from '../features/conversation/TurnList';
@@ -37,6 +38,8 @@ export function TalkPage() {
   };
 
   const busy = conv.busy !== 'idle' || conv.loading;
+  // lessonモードで対話開始前はキーフレーズ予習フェーズを表示する（DESIGN.md §4）
+  const inKeyPhrasePhase = conv.mode === 'lesson' && !conv.dialogueStarted && !conv.loading;
 
   return (
     <div className="mx-auto flex h-dvh max-w-md flex-col bg-hana-50">
@@ -48,9 +51,11 @@ export function TalkPage() {
           </h1>
           <p className="text-xs text-neutral-500">
             {conv.scenario &&
-              (conv.phase === 'guided'
-                ? `ガイド ${Math.min(conv.stepIndex + 1, conv.scenario.steps.length)}/${conv.scenario.steps.length}`
-                : 'フリー会話')}
+              (inKeyPhrasePhase
+                ? 'キーフレーズ予習'
+                : conv.phase === 'guided'
+                  ? `ガイド ${Math.min(conv.stepIndex + 1, conv.scenario.steps.length)}/${conv.scenario.steps.length}`
+                  : 'フリー会話')}
           </p>
         </div>
         <button
@@ -69,9 +74,19 @@ export function TalkPage() {
         </p>
       )}
 
-      {/* 会話ログ */}
-      <main className="flex-1 overflow-y-auto">
-        <TurnList turns={conv.turns} aiDraft={conv.aiDraft} busy={conv.busy} />
+      {/* 会話ログ / キーフレーズ予習 */}
+      <main className="flex flex-1 flex-col overflow-y-auto">
+        {inKeyPhrasePhase && conv.scenario ? (
+          <KeyPhrasePanel
+            scenario={conv.scenario}
+            level={conv.level}
+            busy={conv.busy !== 'idle'}
+            submitKeyPhrase={conv.submitKeyPhrase}
+            onDone={() => void conv.beginDialogue()}
+          />
+        ) : (
+          <TurnList turns={conv.turns.filter((t) => t.phase !== 'keyphrase')} aiDraft={conv.aiDraft} busy={conv.busy} />
+        )}
         {conv.error && (
           <p className="mx-4 mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{conv.error}</p>
         )}
@@ -80,7 +95,21 @@ export function TalkPage() {
         )}
       </main>
 
-      {/* 下部コントロール */}
+      {/* biteモード: 1往復済んだら完了を促す */}
+      {conv.biteComplete && (
+        <div className="border-t border-green-200 bg-green-50 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => void handleFinish()}
+            className="w-full rounded-full bg-green-500 py-2.5 text-sm font-bold text-white"
+          >
+            ✅ 今日のひとくち完了！
+          </button>
+        </div>
+      )}
+
+      {/* 下部コントロール（キーフレーズ予習中は非表示） */}
+      {!inKeyPhrasePhase && (
       <footer className="border-t border-neutral-200 bg-white px-4 pb-6 pt-3">
         {conv.currentStep && (
           <div className="mb-3">
@@ -130,6 +159,7 @@ export function TalkPage() {
           </p>
         )}
       </footer>
+      )}
 
       {/* 終了確認 */}
       {confirmingExit && (
