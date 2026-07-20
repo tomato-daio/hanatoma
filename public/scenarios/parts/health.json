@@ -1,0 +1,333 @@
+[
+  {
+    "id": "b-health-001",
+    "source": "bundled",
+    "title": "At the Pharmacy",
+    "titleJa": "薬局で頭痛薬を買う",
+    "category": "health",
+    "level": 1,
+    "setting": "A small neighborhood pharmacy in the afternoon. The user has a headache and wants to buy some medicine. A kind pharmacist is standing behind the counter.",
+    "aiRole": "A kind, patient pharmacist behind the counter",
+    "userRole": "A customer with a headache looking for medicine",
+    "goal": "Tell the pharmacist about your headache, buy some medicine, and ask how to take it.",
+    "goalJa": "頭痛を伝えて薬を買い、飲み方と値段を確認する",
+    "keyPhrases": [
+      { "en": "I have a headache.", "ja": "頭が痛いです。" },
+      { "en": "Do you have any medicine?", "ja": "薬はありますか？" },
+      { "en": "How do I take it?", "ja": "どうやって飲めばいいですか？", "note": "薬を「飲む」は take を使う" },
+      { "en": "How much is it?", "ja": "いくらですか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the customer warmly and ask how you can help them today. Use very short, simple sentences.",
+        "hintJa": "あいさつして、頭が痛いことを伝えましょう",
+        "hintEn": "I have a...",
+        "modelAnswer": "Hello. I have a headache."
+      },
+      {
+        "aiIntent": "Say you are sorry to hear that, then wait for the user to ask for medicine. If they stay silent, gently ask if they need something.",
+        "hintJa": "頭痛の薬があるか聞いてみましょう",
+        "hintEn": "Do you have...",
+        "modelAnswer": "Do you have any medicine for a headache?"
+      },
+      {
+        "aiIntent": "Say yes, recommend one good headache medicine in very short sentences, and hand it to the user.",
+        "hintJa": "飲み方を聞きましょう（1日に何回？）",
+        "hintEn": "How do I...",
+        "modelAnswer": "How do I take it?"
+      },
+      {
+        "aiIntent": "Explain very simply: take one tablet after a meal, up to two times a day. Then wait for the user's next question.",
+        "hintJa": "値段を聞きましょう",
+        "hintEn": "How much...",
+        "modelAnswer": "How much is it?"
+      },
+      {
+        "aiIntent": "Say it is five dollars, thank the customer, and tell them to get well soon.",
+        "hintJa": "お礼を言って、別れのあいさつをしましょう",
+        "hintEn": "Thank you...",
+        "modelAnswer": "Thank you. Goodbye!"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "say-symptom",
+        "descriptionJa": "症状を自分から1回伝える（I have a headache など）",
+        "check": "Did the user state their own symptom in a sentence such as 'I have a headache'?"
+      },
+      {
+        "id": "ask-about-medicine",
+        "descriptionJa": "薬について質問を1回する（飲み方や値段など）",
+        "check": "Did the user ask at least one question about the medicine, such as how to take it or how much it costs?"
+      }
+    ],
+    "targetPhonemes": ["AE", "V", "S"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the kind pharmacist. Ask one very simple question at a time about how the customer feels, their sleep, or drinking water, using sentences of eight words or fewer. Give one short, easy health tip and react kindly to whatever the user says."
+  },
+  {
+    "id": "b-health-002",
+    "source": "bundled",
+    "title": "Calling to Make a Doctor's Appointment",
+    "titleJa": "電話でクリニックを予約する",
+    "category": "health",
+    "level": 2,
+    "setting": "The user is at home with a sore throat and a small cough. They call a nearby clinic for the first time to make an appointment. A friendly receptionist answers the phone.",
+    "aiRole": "A friendly clinic receptionist answering the phone",
+    "userRole": "A first-time patient calling to book an appointment",
+    "goal": "Make an appointment for tomorrow, explain your symptoms briefly, and confirm the time.",
+    "goalJa": "明日の予約を取り、症状を簡単に伝えて、時間を確認する",
+    "keyPhrases": [
+      { "en": "I'd like to make an appointment.", "ja": "予約をお願いしたいのですが。" },
+      { "en": "It's my first visit.", "ja": "初めての受診です。" },
+      { "en": "I have a sore throat and a cough.", "ja": "のどが痛くて、咳も出ます。" },
+      { "en": "Do you have anything in the morning?", "ja": "午前中に空きはありますか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Answer the phone as the receptionist: give a simple clinic greeting and ask how you can help.",
+        "hintJa": "予約を取りたいと丁寧に伝えましょう",
+        "hintEn": "I'd like to...",
+        "modelAnswer": "Hello. I'd like to make an appointment, please."
+      },
+      {
+        "aiIntent": "Say of course, then ask if the caller has visited the clinic before.",
+        "hintJa": "初めての受診だと答えましょう",
+        "hintEn": "No, it's my...",
+        "modelAnswer": "No, it's my first visit."
+      },
+      {
+        "aiIntent": "Thank them, then ask briefly what the problem is.",
+        "hintJa": "症状を2つ、簡単に伝えましょう（のどが痛い・咳が出る）",
+        "hintEn": "I have a sore...",
+        "modelAnswer": "I have a sore throat and a small cough."
+      },
+      {
+        "aiIntent": "Say the doctor can see them tomorrow, and ask if morning or afternoon is better for them.",
+        "hintJa": "午前がいいと伝えて、具体的な時間を聞いてみましょう",
+        "hintEn": "Morning is better...",
+        "modelAnswer": "Morning is better. Do you have anything around ten?"
+      },
+      {
+        "aiIntent": "Offer ten thirty tomorrow morning, confirm the booking, and remind them to bring their insurance card.",
+        "hintJa": "時間に同意して、お礼を言いましょう",
+        "hintEn": "That's fine...",
+        "modelAnswer": "That's fine. Thank you very much. See you tomorrow."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "two-symptoms",
+        "descriptionJa": "症状を2つ伝える（のどの痛みと咳など）",
+        "check": "Did the user mention at least two symptoms, such as a sore throat and a cough?"
+      },
+      {
+        "id": "polite-request",
+        "descriptionJa": "I'd like to を使って丁寧にお願いする",
+        "check": "Did the user make a polite request using the phrase 'I'd like to ...'?"
+      }
+    ],
+    "targetPhonemes": ["TH", "R", "F", "V"],
+    "estimatedMinutes": 9,
+    "freeTalkPrompt": "Continue as the friendly receptionist on the phone. Ask simple questions one at a time about the caller's symptoms, schedule, or how to get to the clinic, using clear sentences under twelve words. Speak slowly, confirm details politely, and explain what to bring on the first visit."
+  },
+  {
+    "id": "b-health-003",
+    "source": "bundled",
+    "title": "Explaining Your Symptoms to the Doctor",
+    "titleJa": "診察室で症状をくわしく説明する",
+    "category": "health",
+    "level": 3,
+    "setting": "A consultation room at a clinic. The user has had a stomach ache for two days and is now seeing the doctor. The doctor asks questions to understand the symptoms.",
+    "aiRole": "A calm, attentive doctor asking about the patient's symptoms",
+    "userRole": "A patient with a two-day stomach ache describing their condition",
+    "goal": "Describe your stomach pain in detail, answer the doctor's questions, and ask about the diagnosis and medicine.",
+    "goalJa": "腹痛の様子を具体的に説明し、医師の質問に答え、診断と薬について質問する",
+    "keyPhrases": [
+      { "en": "It started two days ago.", "ja": "2日前から始まりました。" },
+      { "en": "The pain gets worse after meals.", "ja": "食後に痛みが強くなります。" },
+      { "en": "I haven't had much of an appetite.", "ja": "あまり食欲がありません。", "note": "現在完了で「ここ数日の状態」を表す" },
+      { "en": "Is it anything serious?", "ja": "何か深刻なものでしょうか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "As the doctor, greet the patient and ask what brings them in today.",
+        "hintJa": "どこが、いつから痛いのかを伝えましょう",
+        "hintEn": "I have a pain...",
+        "modelAnswer": "I have a pain in my stomach. It started two days ago."
+      },
+      {
+        "aiIntent": "Ask what kind of pain it is - sharp or dull - and when it gets worse.",
+        "hintJa": "痛みの種類（鈍い/鋭い）と、いつ悪化するかを説明しましょう",
+        "hintEn": "It's a dull...",
+        "modelAnswer": "It's a dull pain, and it gets worse after meals."
+      },
+      {
+        "aiIntent": "Ask about the patient's appetite, and whether they have had a fever or felt sick.",
+        "hintJa": "食欲がないことを伝え、熱はないことも付け加えましょう",
+        "hintEn": "I haven't had...",
+        "modelAnswer": "I haven't had much of an appetite, but I don't have a fever."
+      },
+      {
+        "aiIntent": "Ask about recent eating habits - anything unusual, spicy food, alcohol, or stress at work.",
+        "hintJa": "思い当たること（夜遅い食事・ストレスなど）を1つ話しましょう",
+        "hintEn": "I've been eating...",
+        "modelAnswer": "I've been eating late at night a lot because of work."
+      },
+      {
+        "aiIntent": "Say it looks like mild gastritis, explain you will prescribe some medicine, and advise lighter meals. Then ask if the patient has any questions.",
+        "hintJa": "深刻かどうか聞き、薬をどのくらいの期間飲むのかも確認しましょう",
+        "hintEn": "Is it anything...",
+        "modelAnswer": "Is it anything serious? And how long should I take the medicine?"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "present-perfect",
+        "descriptionJa": "現在完了（I haven't had / I've been など）を2回使う",
+        "check": "Did the user use the present perfect tense (for example 'I haven't had', 'I've been eating') at least twice?"
+      },
+      {
+        "id": "ask-doctor",
+        "descriptionJa": "医師に質問を1回以上する（深刻か・薬の期間など）",
+        "check": "Did the user ask the doctor at least one question, such as whether the condition is serious or how long to take the medicine?"
+      }
+    ],
+    "targetPhonemes": ["S", "ER", "AE", "V"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the calm doctor after the examination. Ask natural follow-up questions about the patient's daily habits - sleep, meals, and stress - one at a time, and give plain, practical advice for recovery. Use clear everyday language and check that the patient understands each piece of advice."
+  },
+  {
+    "id": "b-health-004",
+    "source": "bundled",
+    "title": "First Session with a Personal Trainer",
+    "titleJa": "ジムでトレーナーに目標と不安を相談する",
+    "category": "health",
+    "level": 4,
+    "setting": "A fitness gym in the evening. The user has just signed up and is having their first consultation with a personal trainer. They want to get fitter but are worried about an old knee problem.",
+    "aiRole": "An upbeat, knowledgeable personal trainer running a first consultation",
+    "userRole": "A new gym member with a weak knee discussing goals and a training plan",
+    "goal": "Explain your fitness goals, mention your knee concern, and agree on a realistic training plan with the trainer.",
+    "goalJa": "運動の目的と膝の不安を伝え、無理のないトレーニング計画をトレーナーと合意する",
+    "keyPhrases": [
+      { "en": "I'd like to build up my stamina.", "ja": "体力をつけたいんです。", "note": "build up = 少しずつ鍛え上げる" },
+      { "en": "My knee acts up sometimes.", "ja": "ときどき膝の調子が悪くなるんです。", "note": "act up = （体の一部が）調子が悪くなる" },
+      { "en": "Could we start with something gentler?", "ja": "もっと負担の軽いものから始められますか？" },
+      { "en": "I want to ease into it rather than push too hard.", "ja": "無理せず徐々に慣らしていきたいです。", "note": "ease into = 徐々に慣らす" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "As the trainer, welcome the user to their first session and ask what they want to get out of training.",
+        "hintJa": "目的（体力づくり）と、最近体力の衰えを感じた具体例を話しましょう",
+        "hintEn": "I'd like to build...",
+        "modelAnswer": "I'd like to build up my stamina. Lately I get out of breath just climbing the stairs."
+      },
+      {
+        "aiIntent": "Ask about their exercise history and whether they have any injuries or health concerns you should know about.",
+        "hintJa": "昔の運動歴と、膝に不安があるので激しい運動は避けたいことを伝えましょう",
+        "hintEn": "I used to...",
+        "modelAnswer": "I used to jog, but my knee acts up sometimes, so I'd rather avoid high-impact exercises."
+      },
+      {
+        "aiIntent": "Suggest a mix of low-impact cardio machines and light strength training, then ask how many days a week they can realistically come.",
+        "hintJa": "現実的に通える回数を伝えて、1回あたりの長さも質問しましょう",
+        "hintEn": "Two or three times...",
+        "modelAnswer": "Two or three times a week is realistic for me. How long should each session be?"
+      },
+      {
+        "aiIntent": "Recommend about forty-five minutes per session, then propose adding squats to strengthen the muscles around the knee. Wait to see how the user reacts.",
+        "hintJa": "膝への負担が心配だと伝えて、もっと軽いメニューから始められないか提案してみましょう",
+        "hintEn": "I'm a bit worried...",
+        "modelAnswer": "I'm a bit worried squats might strain my knee. Could we start with something gentler?"
+      },
+      {
+        "aiIntent": "Agree readily, propose light leg presses instead, summarize the whole plan, and ask if the user is happy with it.",
+        "hintJa": "計画に同意して、無理せず徐々に慣らしたいという方針をまとめましょう",
+        "hintEn": "That sounds good...",
+        "modelAnswer": "That sounds good. I want to ease into it rather than push too hard, so let's go with that plan."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "reason-so-because",
+        "descriptionJa": "希望や事情に理由を添える（so / because を合計2回使う）",
+        "check": "Did the user give reasons for their preferences or situation using 'so' or 'because' at least twice in total?"
+      },
+      {
+        "id": "polite-pushback",
+        "descriptionJa": "提案にやんわり異を唱えて、代わりの案をお願いする",
+        "check": "Did the user politely push back on one of the trainer's suggestions and ask for an alternative, for example expressing worry about their knee and requesting a gentler exercise?"
+      }
+    ],
+    "targetPhonemes": ["R", "W", "IY", "TH"],
+    "estimatedMinutes": 11,
+    "freeTalkPrompt": "Continue as the upbeat personal trainer after the plan is set. Chat naturally about the user's lifestyle - diet, sleep, desk work - and how it affects their fitness. Use natural expressions and the occasional idiom, ask probing follow-up questions one at a time, and tailor your advice to what the user shares."
+  },
+  {
+    "id": "b-health-005",
+    "source": "bundled",
+    "title": "Discussing Your Checkup Results",
+    "titleJa": "健診結果について医師と治療方針を話し合う",
+    "category": "health",
+    "level": 5,
+    "setting": "A follow-up consultation after an annual health checkup. Most of the user's results are fine, but their cholesterol is moderately above the ideal range. The doctor wants to discuss lifestyle changes and possibly medication, and the user wants to weigh the options carefully.",
+    "aiRole": "A thoughtful physician reviewing checkup results and discussing treatment options honestly",
+    "userRole": "A patient with moderately high cholesterol negotiating a treatment plan",
+    "goal": "Understand how serious the results are, negotiate trying lifestyle changes before medication, and agree on a conditional three-month plan.",
+    "goalJa": "結果の深刻度を把握し、投薬の前に生活改善を試す方針を交渉して、3か月の条件付き計画に合意する",
+    "keyPhrases": [
+      { "en": "How concerned should I be about these numbers?", "ja": "この数値は、どの程度心配すべきなのでしょうか？" },
+      { "en": "I'd rather hold off on medication unless it's absolutely necessary.", "ja": "どうしても必要でない限り、薬は控えたいのですが。", "note": "hold off on = 先延ばしにする・見合わせる" },
+      { "en": "Realistically, how much of a difference would diet alone make?", "ja": "現実的に、食事だけでどの程度の改善が見込めますか？" },
+      { "en": "Let's say I stick to this for three months - what then?", "ja": "仮にこれを3か月続けたとして、その後はどうなりますか？", "note": "Let's say = 仮に〜だとして" },
+      { "en": "I'd like to weigh my options before committing to anything.", "ja": "何かを決める前に、選択肢をじっくり比較したいです。", "note": "weigh one's options = 選択肢を比較検討する" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "As the physician, explain that the checkup results are mostly fine but cholesterol is moderately above the ideal range, then invite the patient's questions.",
+        "hintJa": "率直に、この数値をどの程度心配すべきなのか聞きましょう",
+        "hintEn": "How concerned should...",
+        "modelAnswer": "How concerned should I be about these numbers, honestly?"
+      },
+      {
+        "aiIntent": "Give a balanced answer: not urgent, but worth addressing now. Present two options - lifestyle changes alone, or lifestyle changes plus a mild medication - and ask which way the patient leans.",
+        "hintJa": "薬はできれば避けたいこと、まず食事と運動で試したいことを伝えましょう",
+        "hintEn": "I'd rather hold...",
+        "modelAnswer": "I'd rather hold off on medication unless it's absolutely necessary. I'd prefer to see what diet and exercise can do first."
+      },
+      {
+        "aiIntent": "Respect that preference but be honest that diet alone has limits that vary from person to person. Outline the key changes: less fried food, more fish and vegetables, and regular exercise.",
+        "hintJa": "食事の改善だけで現実的にどれくらい下がるのか、踏み込んで確認しましょう",
+        "hintEn": "Realistically, how much...",
+        "modelAnswer": "Realistically, how much of a difference would diet alone make in my case?"
+      },
+      {
+        "aiIntent": "Estimate that a modest but meaningful improvement is possible within three months and propose retesting then. Add that if the numbers have not moved, you would recommend medication more strongly.",
+        "hintJa": "仮に3か月で数値が改善しなくても、すぐ投薬に進まず計画を見直せないか交渉しましょう",
+        "hintEn": "Let's say I stick...",
+        "modelAnswer": "Let's say I stick to this for three months and the numbers barely move - could we still adjust the plan before jumping straight to medication?"
+      },
+      {
+        "aiIntent": "Agree to review everything together at the three-month mark, acknowledge the patient's commitment, and ask them to confirm they are comfortable with the agreed plan.",
+        "hintJa": "合意した計画を確認しつつ、段階ごとに判断していきたい姿勢を伝えて締めくくりましょう",
+        "hintEn": "That works for...",
+        "modelAnswer": "That works for me. I'd like to weigh my options at each step rather than commit to anything long-term today. Thank you for talking it through."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "hedging-language",
+        "descriptionJa": "断定を避ける表現（I'd rather / unless / realistically / Let's say など）を2回以上使う",
+        "check": "Did the user use hedging or nuanced language such as 'I'd rather', 'unless', 'realistically', or 'Let's say' at least twice?"
+      },
+      {
+        "id": "conditional-plan",
+        "descriptionJa": "条件付きの計画や妥協案を自分から提案する",
+        "check": "Did the user propose a conditional plan or compromise, such as trying lifestyle changes first and reviewing the results in three months before deciding on medication?"
+      }
+    ],
+    "targetPhonemes": ["R", "DH", "ER", "TH"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the thoughtful physician now that the plan is agreed. Discuss lifestyle, stress, and long-term health trade-offs at a natural, native level, using nuanced and idiomatic language. Gently challenge the patient's assumptions, ask probing questions, and work toward concrete, realistic next steps together."
+  }
+]

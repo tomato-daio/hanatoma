@@ -1,0 +1,323 @@
+[
+  {
+    "id": "b-travel-001",
+    "source": "bundled",
+    "title": "Hotel Check-in",
+    "titleJa": "ホテルのチェックイン",
+    "category": "travel",
+    "level": 1,
+    "setting": "The front desk of a small city hotel in the evening. The guest has just arrived with a reservation for two nights.",
+    "aiRole": "A friendly hotel receptionist",
+    "userRole": "A traveler checking in with a reservation",
+    "goal": "Check in, hand over your passport, and ask about breakfast and the elevator.",
+    "goalJa": "チェックインを済ませ、パスポートを渡し、朝食とエレベーターについて聞く",
+    "keyPhrases": [
+      { "en": "I have a reservation.", "ja": "予約をしています。" },
+      { "en": "Here you are.", "ja": "はい、どうぞ。", "note": "パスポートやカードを手渡すときの決まり文句" },
+      { "en": "What time is breakfast?", "ja": "朝食は何時ですか？" },
+      { "en": "Where is the elevator?", "ja": "エレベーターはどこですか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the guest warmly and ask how you can help them.",
+        "hintJa": "あいさつをして、「予約している」と伝えましょう。",
+        "hintEn": "I have a",
+        "modelAnswer": "Hello. I have a reservation for two nights."
+      },
+      {
+        "aiIntent": "Say welcome, then ask for the guest's passport to confirm the reservation.",
+        "hintJa": "パスポートを渡すときの決まり文句を使いましょう。",
+        "hintEn": "Here you",
+        "modelAnswer": "Sure. Here you are."
+      },
+      {
+        "aiIntent": "Thank the guest, confirm the room is on the third floor, and hand over the key.",
+        "hintJa": "朝食の時間を聞いてみましょう。",
+        "hintEn": "What time is",
+        "modelAnswer": "Thank you. What time is breakfast?"
+      },
+      {
+        "aiIntent": "Answer that breakfast is from seven to ten on the first floor, then ask if the guest needs anything else.",
+        "hintJa": "エレベーターの場所を聞いてみましょう。",
+        "hintEn": "Where is the",
+        "modelAnswer": "Where is the elevator?"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "greet-first",
+        "descriptionJa": "自分から先にあいさつをする",
+        "check": "The user greeted the receptionist with a phrase like 'hello' or 'good evening' at the start of the conversation."
+      },
+      {
+        "id": "say-thanks-twice",
+        "descriptionJa": "お礼を2回以上言う",
+        "check": "The user said 'thank you' or 'thanks' at least twice during the conversation."
+      }
+    ],
+    "targetPhonemes": ["R", "V", "ER", "L"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the hotel receptionist after check-in is done. Make friendly small talk with the guest: ask where they are from, how long they are staying in the city, and what they want to see. Keep your sentences very short and simple."
+  },
+  {
+    "id": "b-travel-002",
+    "source": "bundled",
+    "title": "Asking for Directions",
+    "titleJa": "道をたずねる",
+    "category": "travel",
+    "level": 2,
+    "setting": "A busy street corner near a train station in a foreign city. The traveler is looking for the city art museum but cannot find it on the map.",
+    "aiRole": "A friendly local person walking down the street",
+    "userRole": "A traveler who is lost and looking for the city art museum",
+    "goal": "Stop a local person, ask the way to the art museum, and confirm you understood the directions.",
+    "goalJa": "通行人に声をかけて美術館への行き方をたずね、聞いた道順を確認する",
+    "keyPhrases": [
+      { "en": "Excuse me, could you help me?", "ja": "すみません、ちょっとよろしいですか？" },
+      { "en": "How do I get to the art museum?", "ja": "美術館へはどう行けばいいですか？" },
+      { "en": "Is it far from here?", "ja": "ここから遠いですか？" },
+      { "en": "So, I go straight and turn left, right?", "ja": "つまり、まっすぐ行って左に曲がるんですね？", "note": "聞いた内容を確認するときの言い方" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "You are walking down the street. Respond kindly when the traveler stops you, and ask what they need.",
+        "hintJa": "声をかけて、美術館を探していると伝えましょう。",
+        "hintEn": "Excuse me, could",
+        "modelAnswer": "Excuse me, could you help me? I'm looking for the art museum."
+      },
+      {
+        "aiIntent": "Explain simply: go straight for two blocks, then turn left at the big bookstore. Speak slowly and clearly.",
+        "hintJa": "遠いかどうか、歩いてどのくらいかを聞きましょう。",
+        "hintEn": "Is it far",
+        "modelAnswer": "I see. Is it far from here?"
+      },
+      {
+        "aiIntent": "Say it is about a ten-minute walk, and add that the museum is next to a small park.",
+        "hintJa": "聞いた道順を自分の言葉で繰り返して確認しましょう。",
+        "hintEn": "So, I go",
+        "modelAnswer": "So, I go straight for two blocks and turn left at the bookstore, right?"
+      },
+      {
+        "aiIntent": "Confirm the directions are correct and wish the traveler a nice day.",
+        "hintJa": "お礼を言って会話を締めくくりましょう。",
+        "hintEn": "Thank you so",
+        "modelAnswer": "Thank you so much for your help. Have a nice day!"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "confirm-directions",
+        "descriptionJa": "聞いた道順を自分の言葉で繰り返して確認する",
+        "check": "The user repeated or paraphrased the directions back to the local person to confirm them, for example 'So, I go straight and turn left...'."
+      },
+      {
+        "id": "ask-distance",
+        "descriptionJa": "距離または所要時間について質問する",
+        "check": "The user asked a question about the distance or how long it takes, such as 'Is it far?' or 'How long does it take?'."
+      }
+    ],
+    "targetPhonemes": ["R", "L", "F", "W"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the friendly local person. Chat casually with the traveler: recommend one more place to visit near the art museum, ask what kind of places they like, and react warmly to their answers. Use short, simple sentences."
+  },
+  {
+    "id": "b-travel-003",
+    "source": "bundled",
+    "title": "Lost Luggage at the Airport",
+    "titleJa": "空港で荷物紛失",
+    "category": "travel",
+    "level": 3,
+    "setting": "The baggage service counter at an international airport. The traveler waited at the carousel after a long flight, but their checked suitcase never appeared.",
+    "aiRole": "A calm and helpful airline baggage service agent",
+    "userRole": "A tired traveler whose checked suitcase did not arrive",
+    "goal": "Report the missing suitcase, describe it clearly, and arrange delivery to your hotel.",
+    "goalJa": "スーツケースの紛失を届け出て、特徴を正確に伝え、ホテルへの配送を手配する",
+    "keyPhrases": [
+      { "en": "My suitcase didn't come out.", "ja": "スーツケースが出てきませんでした。" },
+      { "en": "It's a medium-sized dark blue suitcase.", "ja": "中くらいの紺色のスーツケースです。" },
+      { "en": "Here's my baggage claim tag.", "ja": "これが手荷物の引換証です。" },
+      { "en": "Could you deliver it to my hotel?", "ja": "ホテルまで届けてもらえますか？" },
+      { "en": "When can I expect it?", "ja": "いつ頃届きますか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the traveler at the baggage service counter and ask what happened.",
+        "hintJa": "いつ到着して、何が起きたのかを過去形で説明しましょう。",
+        "hintEn": "My suitcase didn't",
+        "modelAnswer": "Hi. My flight landed about an hour ago, but my suitcase didn't come out at the carousel."
+      },
+      {
+        "aiIntent": "Apologize for the trouble, then ask for the baggage claim tag and a description of the suitcase.",
+        "hintJa": "引換証を渡して、色・大きさ・目印を伝えましょう。",
+        "hintEn": "Here's my claim",
+        "modelAnswer": "Here's my claim tag. It's a medium-sized dark blue suitcase with a red ribbon on the handle."
+      },
+      {
+        "aiIntent": "Check the system and explain the bag was left behind at the transfer airport and should arrive on the last flight tonight. Ask where the traveler is staying.",
+        "hintJa": "滞在先を伝えて、ホテルへの配送をお願いしましょう。",
+        "hintEn": "Could you deliver",
+        "modelAnswer": "I'm staying at a hotel downtown. Could you deliver it there when it arrives?"
+      },
+      {
+        "aiIntent": "Agree to deliver the bag by tomorrow morning and give the traveler a reference number for the report.",
+        "hintJa": "到着予定を確認し、今夜必要な物（洗面用具など）について何かできないか聞いてみましょう。",
+        "hintEn": "When can I",
+        "modelAnswer": "When can I expect it exactly? Also, my toiletries are in the suitcase. Is there anything you can do for tonight?"
+      },
+      {
+        "aiIntent": "Offer an overnight kit, repeat the reference number, and reassure the traveler that most delayed bags arrive within a day.",
+        "hintJa": "お礼を言い、何か進展があれば連絡してほしいと伝えましょう。",
+        "hintEn": "Please call me",
+        "modelAnswer": "Thanks for your help. Please call me if there's any update on my suitcase."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "use-past-tense",
+        "descriptionJa": "過去形を2回以上使って状況を説明する",
+        "check": "The user used past tense verbs at least twice when describing what happened, for example 'landed', 'didn't come out', or 'checked'."
+      },
+      {
+        "id": "describe-two-features",
+        "descriptionJa": "スーツケースの特徴を2つ以上（色・大きさ・目印など）伝える",
+        "check": "The user described at least two features of the suitcase, such as its color, size, or a distinctive mark like a ribbon or sticker."
+      }
+    ],
+    "targetPhonemes": ["S", "L", "V", "R"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the baggage service agent after the report is filed. While finishing the paperwork, make relaxed small talk: ask about the traveler's trip, whether this is their first visit to the country, and reassure them about how the delivery will work. Speak in plain, clear sentences."
+  },
+  {
+    "id": "b-travel-004",
+    "source": "bundled",
+    "title": "Planning a Day Trip at the Tourist Office",
+    "titleJa": "観光案内所で日帰りプランを相談",
+    "category": "travel",
+    "level": 4,
+    "setting": "A tourist information center in a historic city. The traveler has exactly one free day tomorrow, and the forecast says the weather may turn bad in the afternoon.",
+    "aiRole": "An experienced tourist information officer who knows the whole region well",
+    "userRole": "A traveler with one free day who wants to make the most of it",
+    "goal": "Explain your interests and constraints, compare the officer's suggestions, and settle on a day-trip plan with a bad-weather backup.",
+    "goalJa": "興味と条件を伝えて提案を比較し、雨天時の代替案も含めた日帰りプランを決める",
+    "keyPhrases": [
+      { "en": "I was hoping to get out of the city for the day.", "ja": "1日だけ郊外へ出かけたいと思っているんです。" },
+      { "en": "How does that compare to the coastal town?", "ja": "それは海辺の町と比べてどうですか？" },
+      { "en": "What would you recommend if the weather turns bad?", "ja": "天気が崩れた場合は何がおすすめですか？" },
+      { "en": "Could you talk me through the train connections?", "ja": "電車の乗り継ぎを順を追って教えてもらえますか？", "note": "talk me through ～ = 順を追って説明して" },
+      { "en": "That sounds right up my alley.", "ja": "それはまさに私好みですね。", "note": "right up my alley = 自分の好みや得意分野にぴったり" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Welcome the traveler to the tourist office and ask what kind of day they have in mind.",
+        "hintJa": "希望（郊外へ・歴史や地元の食が好き）と心配な点（午後の天気）をまとめて伝えましょう。",
+        "hintEn": "I was hoping",
+        "modelAnswer": "I was hoping to get out of the city tomorrow. I'm into history and local food, but I hear the weather might turn bad in the afternoon."
+      },
+      {
+        "aiIntent": "Suggest two options: a hilltop castle town with a morning food market, or a coastal town with covered shopping arcades and a famous aquarium. Give one advantage of each.",
+        "hintJa": "2つの案を天気の観点で比較する質問をしましょう。",
+        "hintEn": "How does the",
+        "modelAnswer": "They both sound great. How does the castle town compare to the coastal one if the weather turns bad?"
+      },
+      {
+        "aiIntent": "Explain that the castle town is mostly outdoors, while the coastal town has plenty of indoor attractions. Ask which sounds better.",
+        "hintJa": "第一希望を決めつつ、if を使って雨の場合の代替案も伝えましょう。",
+        "hintEn": "I'll go with",
+        "modelAnswer": "I'll go with the castle town, but if it's pouring in the morning I'd rather fall back on the coastal town."
+      },
+      {
+        "aiIntent": "Approve the plan as sensible, then offer to explain the train connections and mention there is a one-day rail pass.",
+        "hintJa": "乗り継ぎの説明を頼み、1日券が得かどうかも確認しましょう。",
+        "hintEn": "Could you talk",
+        "modelAnswer": "Could you talk me through the connections? And is the one-day pass actually worth it for that route?"
+      },
+      {
+        "aiIntent": "Explain the route briefly, confirm the pass saves money on that round trip, and hand over a marked map. Wish them a great day out.",
+        "hintJa": "具体的に何が助かったかを添えて、お礼を言って締めくくりましょう。",
+        "hintEn": "That's really helpful",
+        "modelAnswer": "That's really helpful — you've saved me hours of planning. Thanks a lot for the map, too."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "compare-options",
+        "descriptionJa": "2つの選択肢を比較する表現（compared to / rather than / 比較級など）を使う",
+        "check": "The user explicitly compared two options using comparative language such as 'compared to', 'rather than', 'better for', or a comparative adjective."
+      },
+      {
+        "id": "conditional-backup",
+        "descriptionJa": "if を使って天気次第の代替案を述べる",
+        "check": "The user used a conditional sentence with 'if' to describe a backup plan, for example 'if it rains, I'll switch to...'."
+      }
+    ],
+    "targetPhonemes": ["W", "DH", "ER", "R"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the tourist information officer once the plan is settled. Have a relaxed, natural chat: ask about the best trip the traveler has ever taken, share one hidden local spot you personally love, and weave in one or two idiomatic expressions."
+  },
+  {
+    "id": "b-travel-005",
+    "source": "bundled",
+    "title": "Negotiating After a Flight Cancellation",
+    "titleJa": "欠航後の交渉",
+    "category": "travel",
+    "level": 5,
+    "setting": "The airline service desk late at night, just after the day's last flight was cancelled due to a mechanical issue. A long line is forming behind the traveler and seats on other flights are scarce.",
+    "aiRole": "An airline customer service agent who is professional and sympathetic but constrained by company policy, and who only offers extras when pressed with good reasons",
+    "userRole": "A traveler who must reach their destination by tomorrow evening for an important commitment",
+    "goal": "Negotiate an earlier rebooking with the fare difference waived, and secure hotel and meal compensation, while staying courteous but firm.",
+    "goalJa": "丁寧かつ毅然と交渉し、差額免除での早い振替便とホテル・食事の補償を確保する",
+    "keyPhrases": [
+      { "en": "I appreciate this isn't your fault, but I need a workable solution.", "ja": "あなたのせいではないのは承知していますが、現実的な解決策が必要なんです。", "note": "相手を立ててから要求を出すクッション表現" },
+      { "en": "Could you look into routing me through another city?", "ja": "別の都市経由の便を調べていただけますか？" },
+      { "en": "Since the cancellation was mechanical, I believe I'm entitled to accommodation.", "ja": "機材トラブルによる欠航ですから、宿泊補償の対象になるはずです。", "note": "be entitled to ～ = ～を受ける権利がある" },
+      { "en": "Could you confirm that with your supervisor if needed?", "ja": "必要であれば上席の方に確認していただけますか？" },
+      { "en": "Just so we're on the same page, let me go over the details.", "ja": "認識を合わせるために、内容を確認させてください。", "note": "on the same page = 認識が一致している" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Apologize for the cancellation and offer only the standard option: the same flight tomorrow night. Sound sympathetic but stick to the standard rebooking at first.",
+        "hintJa": "相手を責めないクッション表現から入り、明日の夕方までに着く必要があると伝えて、他都市経由の便を打診しましょう。",
+        "hintEn": "I appreciate this",
+        "modelAnswer": "I appreciate this isn't your fault, but tomorrow night is too late — I have to be there by tomorrow evening. Could you look into routing me through another city?"
+      },
+      {
+        "aiIntent": "Reluctantly check the system and find an early-morning connection through a hub airport, but point out it is in a higher booking class and normally requires paying the fare difference.",
+        "hintJa": "欠航は航空会社側の事情なので差額の免除を求め、必要なら上席への確認を促しましょう。",
+        "hintEn": "Given that the",
+        "modelAnswer": "Given that the cancellation was on the airline's side, I'd expect the fare difference to be waived. Could you confirm that with your supervisor if needed?"
+      },
+      {
+        "aiIntent": "After checking with a supervisor, agree to waive the fare difference. Do not mention hotel or meal compensation unless the traveler brings it up.",
+        "hintJa": "機材トラブルが原因であることを根拠に、今夜のホテルと食事券の補償を求めましょう。",
+        "hintEn": "Since the cancellation",
+        "modelAnswer": "Thank you, that helps a lot. And since the cancellation was mechanical, I believe I'm entitled to a hotel for tonight and meal vouchers as well."
+      },
+      {
+        "aiIntent": "Concede the hotel and meal vouchers, start processing everything, and mention there is a shuttle to the airport hotel.",
+        "hintJa": "合意した内容（朝の便・差額免除・ホテル・食事券）をまとめて、最終確認をしましょう。",
+        "hintEn": "So just so",
+        "modelAnswer": "Perfect. So just so we're on the same page: I'm confirmed on the early-morning connection with the fee waived, plus a hotel tonight and meal vouchers — is that right?"
+      },
+      {
+        "aiIntent": "Confirm every detail, hand over the new boarding documents and vouchers, and thank the traveler for their patience.",
+        "hintJa": "深夜まで対応してくれた相手の労をねぎらいながら、感謝を伝えて締めくくりましょう。",
+        "hintEn": "Thanks for going",
+        "modelAnswer": "Thanks for going the extra mile — I know it's been a rough night for you as well."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "soften-before-demand",
+        "descriptionJa": "クッション表現（I appreciate... / I understand... など）を使ってから要求を述べる",
+        "check": "The user softened at least one request with an empathy or concession phrase such as 'I appreciate...' or 'I understand...' before stating what they wanted."
+      },
+      {
+        "id": "summarize-agreement",
+        "descriptionJa": "終盤で合意内容（便・差額免除・ホテル・食事券）を要約して確認する",
+        "check": "Near the end, the user summarized the agreed arrangements — the rebooked flight, waived fee, hotel, and vouchers — and asked the agent to confirm them."
+      }
+    ],
+    "targetPhonemes": ["R", "TH", "V", "ER"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the same airline agent once the paperwork is done and the line has finally died down. Drop the corporate tone a little and have a candid, natural conversation: ask what commitment the traveler is rushing to, swap stories about the worst travel disruptions you have each seen, and use idiomatic, native-level English throughout."
+  }
+]

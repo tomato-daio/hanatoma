@@ -1,0 +1,384 @@
+[
+  {
+    "id": "b-work-001",
+    "source": "bundled",
+    "title": "First Day: Introducing Yourself",
+    "titleJa": "初出社の自己紹介",
+    "category": "work",
+    "level": 1,
+    "setting": "It is the user's first day at a new office. In the morning, a friendly coworker from another team stops by the user's desk to say hello and welcome them.",
+    "aiRole": "A friendly, patient coworker who welcomes new members and speaks slowly in very short sentences",
+    "userRole": "A new employee on their first day at the office",
+    "goal": "Introduce yourself, say which team you are on, and ask the coworker about their job.",
+    "goalJa": "自己紹介をして自分のチームを伝え、相手の仕事を1つ質問する",
+    "keyPhrases": [
+      {
+        "en": "Nice to meet you.",
+        "ja": "はじめまして。"
+      },
+      {
+        "en": "I just started today.",
+        "ja": "今日から働き始めました。"
+      },
+      {
+        "en": "I'm on the sales team.",
+        "ja": "営業チームにいます。"
+      },
+      {
+        "en": "What do you do?",
+        "ja": "お仕事は何をされていますか？",
+        "note": "職種を尋ねる定番フレーズ。仕事の場では失礼になりません"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Warmly greet the user, welcome them to the company, and ask if they are new here. Keep it under 8 words per sentence.",
+        "hintJa": "あいさつをして、今日から働き始めたことを伝えましょう。",
+        "hintEn": "Yes, I just...",
+        "modelAnswer": "Yes, I just started today. Nice to meet you."
+      },
+      {
+        "aiIntent": "Say nice to meet you too, then ask which team the user is on.",
+        "hintJa": "自分のチーム名を答えましょう。「〜チームにいます」でOKです。",
+        "hintEn": "I'm on the...",
+        "modelAnswer": "I'm on the sales team."
+      },
+      {
+        "aiIntent": "React positively about their team, then pause and give the user a chance to ask about you.",
+        "hintJa": "今度はあなたから、相手の仕事を質問してみましょう。",
+        "hintEn": "What do you...",
+        "modelAnswer": "What do you do?"
+      },
+      {
+        "aiIntent": "Answer that you are a designer on the product team, then offer to help the user anytime and suggest having lunch together sometime.",
+        "hintJa": "お礼を言って、「ぜひ」と誘いに答えましょう。",
+        "hintEn": "Thank you. That sounds...",
+        "modelAnswer": "Thank you. That sounds nice."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "greet-phrase",
+        "descriptionJa": "あいさつの決まり文句（Nice to meet you など）を言う",
+        "check": "Check if the user used a greeting phrase such as 'Nice to meet you', 'Hello', or 'Good morning' at least once."
+      },
+      {
+        "id": "ask-one-question",
+        "descriptionJa": "相手に質問を1回する",
+        "check": "Check if the user asked the coworker at least one question in English, such as 'What do you do?'"
+      }
+    ],
+    "targetPhonemes": ["S", "IY", "W", "TH"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue chatting as the friendly coworker. Ask very simple questions about the user's first day, where they are from, or what they like for lunch. Use short, easy sentences and react warmly to whatever they say."
+  },
+  {
+    "id": "b-work-002",
+    "source": "bundled",
+    "title": "Monday Small Talk at the Office",
+    "titleJa": "月曜朝のオフィス雑談",
+    "category": "work",
+    "level": 2,
+    "setting": "Monday morning in the office kitchen. The user is making coffee before work when a cheerful coworker from another team walks in and starts casual small talk about the weekend.",
+    "aiRole": "A cheerful coworker from another team who enjoys light small talk and asks easy follow-up questions",
+    "userRole": "An office worker making coffee before starting the day",
+    "goal": "Enjoy small talk about the weekend, ask a question back, and politely wrap up to get back to work.",
+    "goalJa": "週末の話で雑談を楽しみ、質問を返し、感じよく切り上げて仕事に戻る",
+    "keyPhrases": [
+      {
+        "en": "How was your weekend?",
+        "ja": "週末はどうでしたか？"
+      },
+      {
+        "en": "I stayed home and relaxed.",
+        "ja": "家でゆっくりしました。"
+      },
+      {
+        "en": "That sounds fun.",
+        "ja": "楽しそうですね。",
+        "note": "相手の話へのあいづちの定番"
+      },
+      {
+        "en": "I should get back to work.",
+        "ja": "そろそろ仕事に戻らないと。",
+        "note": "雑談を感じよく切り上げるフレーズ"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the user, comment briefly on the weather this morning, and ask how they are.",
+        "hintJa": "あいさつを返して、調子を伝え、相手にも聞き返しましょう。",
+        "hintEn": "Good morning. I'm...",
+        "modelAnswer": "Good morning. I'm good, thanks. How about you?"
+      },
+      {
+        "aiIntent": "Answer briefly that you are doing well, then ask how the user's weekend was.",
+        "hintJa": "週末に何をしたか、過去形で答えましょう。相手の週末も聞いてみて。",
+        "hintEn": "I stayed home and...",
+        "modelAnswer": "I stayed home and watched a movie. How was your weekend?"
+      },
+      {
+        "aiIntent": "Say you went hiking with a friend and it was great. Then ask if the user likes the outdoors.",
+        "hintJa": "「楽しそうですね」とあいづちを打ってから、自分の好きなことを1つ話しましょう。",
+        "hintEn": "That sounds fun. I...",
+        "modelAnswer": "That sounds fun. I like walking in the park."
+      },
+      {
+        "aiIntent": "Agree warmly and suggest chatting more at lunch sometime. Keep it short.",
+        "hintJa": "「ぜひ」と答えて、仕事に戻ることを感じよく伝えましょう。",
+        "hintEn": "Sure. I should get...",
+        "modelAnswer": "Sure. I should get back to work. See you later."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "past-tense-twice",
+        "descriptionJa": "過去形の動詞を2回以上使う",
+        "check": "Check if the user used past tense verbs at least twice (e.g., watched, stayed, went, was)."
+      },
+      {
+        "id": "return-question",
+        "descriptionJa": "相手に質問を1回以上返す",
+        "check": "Check if the user asked the coworker at least one question back, such as 'How about you?' or 'How was your weekend?'"
+      }
+    ],
+    "targetPhonemes": ["W", "ER", "R", "AH"],
+    "estimatedMinutes": 9,
+    "freeTalkPrompt": "Continue the casual chat as the cheerful coworker. Ask easy follow-up questions about the user's hobbies, favorite movies, or plans for next weekend. Keep sentences short and friendly, and share a little about yourself too."
+  },
+  {
+    "id": "b-work-003",
+    "source": "bundled",
+    "title": "Asking a Colleague for a Favor",
+    "titleJa": "同僚に仕事のお願いをする",
+    "category": "work",
+    "level": 3,
+    "setting": "Late afternoon at the office. The user is preparing slides for tomorrow morning's client presentation and wants a senior colleague to check the English before sending them out. The colleague is busy, so the user needs to explain what they need, why, and by when.",
+    "aiRole": "A busy but kind senior colleague who is willing to help, but asks for details like the deadline and the amount of work before agreeing",
+    "userRole": "A team member preparing slides for tomorrow morning's client presentation",
+    "goal": "Politely ask your colleague to review your slides, explain the deadline, and agree on when you will get feedback.",
+    "goalJa": "同僚に丁寧に資料チェックを依頼し、締め切りを説明して、いつ見てもらえるか合意する",
+    "keyPhrases": [
+      {
+        "en": "Do you have a minute?",
+        "ja": "今ちょっといいですか？"
+      },
+      {
+        "en": "Could you take a look at my slides?",
+        "ja": "スライドに目を通してもらえませんか？",
+        "note": "Could you〜? は Can you〜? より丁寧"
+      },
+      {
+        "en": "It's due tomorrow morning.",
+        "ja": "締め切りは明日の朝なんです。"
+      },
+      {
+        "en": "That would be a big help.",
+        "ja": "そうしてもらえるととても助かります。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "You are focused on your own work. Respond to being approached: say you are a bit busy but ask what's up.",
+        "hintJa": "時間があるか確認して、お願いがあると切り出しましょう。",
+        "hintEn": "Do you have a...",
+        "modelAnswer": "Do you have a minute? I'd like to ask you a favor."
+      },
+      {
+        "aiIntent": "Say sure, and ask what the favor is.",
+        "hintJa": "スライドのチェックを丁寧に依頼しましょう。何を見てほしいかも一言添えて。",
+        "hintEn": "Could you take a...",
+        "modelAnswer": "Could you take a look at my presentation slides? I want to make sure the English is natural."
+      },
+      {
+        "aiIntent": "Agree in principle, but ask when the deadline is and how many slides there are.",
+        "hintJa": "締め切りと分量を伝えましょう。「〜なので今日中だと助かる」と理由も。",
+        "hintEn": "It's due tomorrow morning...",
+        "modelAnswer": "It's due tomorrow morning, so today would be great. It's about ten slides."
+      },
+      {
+        "aiIntent": "Agree to review the slides by 4 p.m. today, and ask the user to send you the file now.",
+        "hintJa": "お礼を言って、すぐファイルを送ると伝えましょう。",
+        "hintEn": "Thank you so much...",
+        "modelAnswer": "Thank you so much. I'll send it right away. That would be a big help."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "reason-because",
+        "descriptionJa": "because や so を使って依頼の理由を1回言う",
+        "check": "Check if the user gave a reason for the request using 'because' or 'so' at least once (e.g., because the presentation is tomorrow morning)."
+      },
+      {
+        "id": "polite-request",
+        "descriptionJa": "Could you / Would you などの丁寧な依頼表現を使う",
+        "check": "Check if the user made a request using a polite form such as 'Could you...?', 'Would you mind...?', or 'I'd like to ask...'."
+      }
+    ],
+    "targetPhonemes": ["L", "S", "DH", "IH"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the senior colleague after agreeing to review the slides. Chat naturally about the presentation: ask what the client meeting is about, whether the user feels ready, and share one short piece of advice about presenting in English. Ask follow-up questions to keep the user talking."
+  },
+  {
+    "id": "b-work-004",
+    "source": "bundled",
+    "title": "Reporting a Delay in a Remote Meeting",
+    "titleJa": "リモート会議で遅れを報告する",
+    "category": "work",
+    "level": 4,
+    "setting": "A weekly project video call. The user is responsible for the data migration task and must report this week's progress. The work is three days behind schedule because test data arrived late. The project lead will ask probing questions, and the user needs to explain the cause, the impact, and a recovery plan.",
+    "aiRole": "A sharp but fair project lead running a weekly video call. You ask probing questions about schedule risks, push back on vague answers, but approve reasonable plans",
+    "userRole": "A team member responsible for the data migration task, reporting this week's progress",
+    "goal": "Report your progress, explain the three-day delay honestly with its cause and impact, and get your recovery plan approved.",
+    "goalJa": "進捗を報告し、3日の遅れを原因と影響つきで正直に説明して、挽回案の了承を得る",
+    "keyPhrases": [
+      {
+        "en": "Let me give you a quick update.",
+        "ja": "手短に進捗を報告させてください。"
+      },
+      {
+        "en": "We're slightly behind schedule.",
+        "ja": "予定より少し遅れています。",
+        "note": "behind schedule＝スケジュールより遅れて。on track＝順調、の対"
+      },
+      {
+        "en": "To get back on track, I suggest...",
+        "ja": "遅れを取り戻すために、〜を提案します。"
+      },
+      {
+        "en": "I'll keep you posted.",
+        "ja": "進捗は随時お知らせします。",
+        "note": "報告の締めに使える定番表現"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Open the weekly call briskly and ask the user for their update on the data migration task.",
+        "hintJa": "報告を切り出しましょう。「手短に進捗を」の定番フレーズが使えます。",
+        "hintEn": "Sure. Let me give...",
+        "modelAnswer": "Sure. Let me give you a quick update on the data migration."
+      },
+      {
+        "aiIntent": "Listen, then ask directly whether the task is still on track for the deadline.",
+        "hintJa": "正直に遅れを認め、日数と原因を伝えましょう。",
+        "hintEn": "Actually, we're about...",
+        "modelAnswer": "Actually, we're about three days behind schedule because the test data arrived late."
+      },
+      {
+        "aiIntent": "Push back: ask why this was not flagged earlier, and what the impact on the overall schedule is.",
+        "hintJa": "指摘を受け止めた上で、影響の範囲（何に響いて何に響かないか）を説明しましょう。",
+        "hintEn": "You're right, I...",
+        "modelAnswer": "You're right, I should have raised it sooner. The delay affects testing, but it doesn't threaten the release date yet."
+      },
+      {
+        "aiIntent": "Ask for a concrete recovery plan with actions and dates.",
+        "hintJa": "挽回策を提案しましょう。「To get back on track」で始めると自然です。",
+        "hintEn": "To get back on...",
+        "modelAnswer": "To get back on track, I suggest starting the tests with partial data this week, and I'd like one extra reviewer for two days."
+      },
+      {
+        "aiIntent": "Approve the plan on the condition that the user reports again mid-week. Ask them to confirm.",
+        "hintJa": "条件を了承し、水曜に短い報告を送ると締めくくりましょう。",
+        "hintEn": "That works. I'll send...",
+        "modelAnswer": "That works. I'll send a short update on Wednesday and keep you posted on any new risks."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "cause-and-impact",
+        "descriptionJa": "遅れの原因と影響をセットで説明する",
+        "check": "Check if the user explained both the cause of the delay (e.g., the test data arrived late) and its impact on the schedule or other tasks."
+      },
+      {
+        "id": "propose-recovery",
+        "descriptionJa": "提案表現（I suggest / we could など）で挽回策を出す",
+        "check": "Check if the user proposed a recovery action using an expression such as 'I suggest', 'we could', 'my plan is', or 'I'd like to'."
+      }
+    ],
+    "targetPhonemes": ["R", "SH", "TH", "ER"],
+    "estimatedMinutes": 11,
+    "freeTalkPrompt": "Stay in character as the project lead after the plan is approved. Shift to a lighter closing conversation: ask how the team's workload feels, whether the user needs anything else from you, and discuss one lesson learned from the delay. Challenge vague statements politely and ask follow-up questions."
+  },
+  {
+    "id": "b-work-005",
+    "source": "bundled",
+    "title": "Negotiating Scope with a Demanding Client",
+    "titleJa": "難しい要望をする顧客との交渉",
+    "category": "work",
+    "level": 5,
+    "setting": "An online negotiation call near the end of a software project. The client representative wants a new reporting feature added to the current release without moving the launch date or paying extra. The user must push back diplomatically, protect the team from scope creep, offer trade-offs, and land an agreement both sides can accept.",
+    "aiRole": "A demanding but professional client representative. You want the extra feature at no cost, mention competitors to apply pressure, and test how firm the user is, but you accept a well-reasoned compromise",
+    "userRole": "A project manager responsible for delivering the product on time and protecting the team from scope creep",
+    "goal": "Push back diplomatically on the extra request and reach a realistic agreement on scope, schedule, and cost.",
+    "goalJa": "追加要望に角を立てずに反論し、範囲・日程・費用の現実的な落としどころで合意する",
+    "keyPhrases": [
+      {
+        "en": "I see where you're coming from.",
+        "ja": "おっしゃることはよく分かります。",
+        "note": "反論の前に相手を受け止める譲歩表現"
+      },
+      {
+        "en": "That said, we need to be realistic about the timeline.",
+        "ja": "とはいえ、スケジュールは現実的に考える必要があります。",
+        "note": "That said＝とはいえ。譲歩からの切り返し"
+      },
+      {
+        "en": "What if we phased it in after launch?",
+        "ja": "ローンチ後に段階的に導入するのはどうでしょう？",
+        "note": "phase in＝段階的に導入する"
+      },
+      {
+        "en": "Just to confirm we're on the same page,...",
+        "ja": "認識が合っているか確認ですが、",
+        "note": "合意内容をまとめ直すときの定番"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Open the call by firmly requesting that the new reporting feature be included in the current release, at no extra cost, without moving the launch date.",
+        "hintJa": "まず相手の要望を受け止めてから、「とはいえ」とリスクを指摘しましょう。",
+        "hintEn": "I see where you're...",
+        "modelAnswer": "I see where you're coming from, and the feature itself makes sense. That said, adding it now would put the launch date at serious risk."
+      },
+      {
+        "aiIntent": "Apply pressure: say competitors already offer this feature and hint that your management is getting impatient.",
+        "hintJa": "プレッシャーに動じず、急ぐことのデメリットが相手にも及ぶことを伝えましょう。",
+        "hintEn": "I understand the pressure...",
+        "modelAnswer": "I understand the pressure you're under. Still, rushing it in would compromise quality, which would hurt both of us in the long run."
+      },
+      {
+        "aiIntent": "Challenge the user: ask what they propose instead, since simply saying no is not acceptable.",
+        "hintJa": "代替案を出しましょう。「段階的に導入するのはどうか」と時期も添えて。",
+        "hintEn": "What if we phased...",
+        "modelAnswer": "What if we phased it in? We launch on schedule as planned, then deliver the reporting feature in the first update, say four weeks later."
+      },
+      {
+        "aiIntent": "Press on cost: ask whether the phased feature will cost extra, and try to get it included for free.",
+        "hintJa": "条件付きで譲歩しましょう。「今の範囲のままなら吸収できるが、それ以上は別見積もり」。",
+        "hintEn": "If we keep the...",
+        "modelAnswer": "If we keep the current scope unchanged, we can absorb the design work. Any additional requests beyond that would need a separate estimate, though."
+      },
+      {
+        "aiIntent": "Reluctantly accept the compromise, and ask the user to summarize exactly what has been agreed.",
+        "hintJa": "「認識合わせ」のフレーズで、合意した3点（発売日・機能の時期・範囲）をまとめましょう。",
+        "hintEn": "Just to confirm we're...",
+        "modelAnswer": "Just to confirm we're on the same page: we launch on the original date, the reporting feature ships in the first update, and the scope stays as agreed. I'll send a written summary today."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "concede-then-counter",
+        "descriptionJa": "譲歩してから反論する型（I see your point, that said... など）を使う",
+        "check": "Check if the user acknowledged the client's view before disagreeing, using a concession structure such as 'I see where you're coming from, that said...' or 'I understand, however...'."
+      },
+      {
+        "id": "conditional-offer",
+        "descriptionJa": "条件付きの提案（If we..., we can/could...）を1回以上使う",
+        "check": "Check if the user used a conditional sentence to propose or limit an offer, such as 'If we keep the scope unchanged, we can absorb the cost.'"
+      }
+    ],
+    "targetPhonemes": ["R", "W", "DH", "AE"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the client representative after the agreement. Move into relationship-building conversation: reflect on how the project has gone, raise one small lingering concern about long-term support, and float a vague idea about future work together. Speak naturally with idiomatic expressions, and probe the user's positions with follow-up questions so they must qualify, hedge, and clarify nuance."
+  }
+]

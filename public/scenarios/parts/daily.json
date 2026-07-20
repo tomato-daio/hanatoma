@@ -1,0 +1,309 @@
+[
+  {
+    "id": "b-daily-001",
+    "source": "bundled",
+    "title": "Good Morning, Neighbor!",
+    "titleJa": "近所の人に朝のあいさつ",
+    "category": "daily",
+    "level": 1,
+    "setting": "A quiet residential street on a sunny morning. The user steps outside and meets a friendly neighbor who is watering flowers in front of their house.",
+    "aiRole": "A friendly neighbor watering flowers in front of their house",
+    "userRole": "A resident greeting their neighbor on the way out",
+    "goal": "Exchange morning greetings, say one thing about the weather, and part politely.",
+    "goalJa": "朝のあいさつを交わし、天気についてひとこと話して、気持ちよく別れる",
+    "keyPhrases": [
+      { "en": "Good morning!", "ja": "おはようございます！" },
+      { "en": "It's a nice day today.", "ja": "今日はいい天気ですね。" },
+      { "en": "How are you?", "ja": "お元気ですか？" },
+      { "en": "Have a nice day!", "ja": "よい一日を！" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the user warmly with 'Good morning!' and smile.",
+        "hintJa": "あいさつを返して、相手の様子も聞いてみましょう",
+        "hintEn": "Good morning! How...",
+        "modelAnswer": "Good morning! How are you?"
+      },
+      {
+        "aiIntent": "Say you are great, then comment that the weather is nice and ask the user if they like this weather.",
+        "hintJa": "天気に同意して、ひとこと付け加えましょう（例: 晴れの日が好きです）",
+        "hintEn": "Yes, it's a...",
+        "modelAnswer": "Yes, it's a nice day today. I like sunny days."
+      },
+      {
+        "aiIntent": "Mention that you are watering your flowers, then ask if the user is going out now.",
+        "hintJa": "どこへ行くか短く答えましょう（例: スーパーに行きます）",
+        "hintEn": "Yes, I'm going...",
+        "modelAnswer": "Yes, I'm going to the supermarket now."
+      },
+      {
+        "aiIntent": "Wish the user a nice day and say goodbye warmly.",
+        "hintJa": "お礼を言って、別れのあいさつをしましょう",
+        "hintEn": "Thank you! Have...",
+        "modelAnswer": "Thank you! Have a nice day!"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "ask-question",
+        "descriptionJa": "相手に質問を1回する（How are you? など）",
+        "check": "Did the user ask the neighbor at least one question, such as 'How are you?'"
+      },
+      {
+        "id": "weather-word",
+        "descriptionJa": "天気に関する単語（nice day / sunny など）を1回使う",
+        "check": "Did the user use at least one weather-related word such as 'sunny', 'nice day', 'hot', or 'cloudy'?"
+      }
+    ],
+    "targetPhonemes": ["R", "V", "AE"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue the friendly small talk as the neighbor. Ask one very simple question at a time about the user's morning or their plans for today, using only basic words and sentences of eight words or fewer. React warmly and simply to whatever the user says."
+  },
+  {
+    "id": "b-daily-002",
+    "source": "bundled",
+    "title": "Talking About Weekend Plans",
+    "titleJa": "週末の予定を話そう",
+    "category": "daily",
+    "level": 2,
+    "setting": "Friday evening at the entrance of an apartment building. The user runs into a friendly acquaintance who lives in the same building, and they chat about the coming weekend.",
+    "aiRole": "A friendly acquaintance who lives in the same building and loves chatting",
+    "userRole": "A resident chatting about plans for the coming weekend",
+    "goal": "Tell your weekend plans, ask about the other person's plans, and react to what they say.",
+    "goalJa": "自分の週末の予定を伝え、相手の予定も聞いて、感想をひとこと言う",
+    "keyPhrases": [
+      { "en": "What are you doing this weekend?", "ja": "今週末は何をする予定ですか？" },
+      { "en": "I'm going to see a movie.", "ja": "映画を見に行くつもりです。", "note": "予定は be going to で言う" },
+      { "en": "That sounds fun!", "ja": "楽しそうですね！" },
+      { "en": "How about you?", "ja": "あなたはどうですか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the user, say you are happy it is finally Friday, and ask what they are doing this weekend.",
+        "hintJa": "週末の予定を1つ言いましょう（going to を使って）",
+        "hintEn": "I'm going to...",
+        "modelAnswer": "I'm going to see a movie with my friend on Saturday."
+      },
+      {
+        "aiIntent": "React positively and ask one simple follow-up question about their plan, such as what kind or where.",
+        "hintJa": "質問に短く答えて、ひとこと付け加えましょう",
+        "hintEn": "It's an action...",
+        "modelAnswer": "It's an action movie. We're going to the theater near the station."
+      },
+      {
+        "aiIntent": "Say that sounds nice, then pause so the user can ask about your weekend. If they stay silent, hint that you also have plans.",
+        "hintJa": "今度は相手の週末の予定を聞いてみましょう",
+        "hintEn": "How about you?",
+        "modelAnswer": "How about you? What are you doing this weekend?"
+      },
+      {
+        "aiIntent": "Say you are going hiking with your family on Sunday and that you are really looking forward to it.",
+        "hintJa": "感想を言いましょう（楽しそう！天気がいいといいですね、など）",
+        "hintEn": "That sounds fun...",
+        "modelAnswer": "That sounds fun! I hope the weather is good on Sunday."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "use-going-to",
+        "descriptionJa": "be going to を2回使って予定を言う",
+        "check": "Did the user use the 'be going to' future form at least twice to talk about plans?"
+      },
+      {
+        "id": "ask-back",
+        "descriptionJa": "相手の予定を質問で聞き返す",
+        "check": "Did the user ask the partner about their weekend plans with a question such as 'How about you?' or 'What are you doing this weekend?'"
+      }
+    ],
+    "targetPhonemes": ["W", "IY", "DH", "S"],
+    "estimatedMinutes": 9,
+    "freeTalkPrompt": "Continue chatting as the friendly neighbor about weekends and free time. Ask simple follow-up questions one at a time about what the user likes to do on weekends, and share short, easy comments about your own weekend habits. Keep sentences under twelve words."
+  },
+  {
+    "id": "b-daily-003",
+    "source": "bundled",
+    "title": "Chatting About Hobbies",
+    "titleJa": "趣味について語ろう",
+    "category": "daily",
+    "level": 3,
+    "setting": "A relaxed lounge at a community center after an exercise class. The user is having tea with another participant and they start talking about hobbies.",
+    "aiRole": "A cheerful class participant who loves photography and is curious about the user's hobbies",
+    "userRole": "A participant talking about their hobby over tea",
+    "goal": "Describe your hobby, explain why you like it, and find something in common with the other person.",
+    "goalJa": "自分の趣味を紹介し、好きな理由を説明して、相手との共通点を見つける",
+    "keyPhrases": [
+      { "en": "I'm really into cooking these days.", "ja": "最近、料理にハマっています。", "note": "be into 〜=〜にハマっている" },
+      { "en": "I've been doing it for about two years.", "ja": "2年ほど続けています。", "note": "現在完了で期間を言う" },
+      { "en": "What do you like about it?", "ja": "それのどんなところが好きですか？" },
+      { "en": "We should do it together sometime.", "ja": "今度一緒にやりましょうよ。" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Say the class was fun, then ask the user what they usually do in their free time.",
+        "hintJa": "自分の趣味を紹介しましょう（ハマっている、と言ってみる）",
+        "hintEn": "I'm really into...",
+        "modelAnswer": "I'm really into cooking these days. I try a new recipe almost every weekend."
+      },
+      {
+        "aiIntent": "Show genuine interest and ask how long they have been doing it and why they like it.",
+        "hintJa": "続けている期間と、好きな理由を言いましょう（because を使って）",
+        "hintEn": "I've been doing...",
+        "modelAnswer": "I've been doing it for about two years. I like it because I can relax and forget about work."
+      },
+      {
+        "aiIntent": "Say that you are really into photography, and briefly mention you take your camera everywhere.",
+        "hintJa": "相手の趣味に興味を示して、質問してみましょう",
+        "hintEn": "What do you like...",
+        "modelAnswer": "That's cool! What do you like about photography?"
+      },
+      {
+        "aiIntent": "Answer with enthusiasm about capturing everyday moments, then suggest your two hobbies could go well together.",
+        "hintJa": "共通点に触れて、今度一緒にやろうと誘ってみましょう",
+        "hintEn": "We should do...",
+        "modelAnswer": "We should do it together sometime. You could take photos of the dishes I cook!"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "reason-because",
+        "descriptionJa": "because を使って理由を1回言う",
+        "check": "Did the user give a reason for liking their hobby using 'because'?"
+      },
+      {
+        "id": "present-perfect",
+        "descriptionJa": "現在完了（I've been doing など）で期間や経験を1回言う",
+        "check": "Did the user use the present perfect at least once, for example 'I've been doing it for two years'?"
+      }
+    ],
+    "targetPhonemes": ["R", "L", "F", "SH"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue the conversation as the photography-loving class participant. Explore the user's hobby more deeply: ask how they started, about a memorable moment, and about future goals with the hobby. Share your own short photography stories and keep looking for things you have in common."
+  },
+  {
+    "id": "b-daily-004",
+    "source": "bundled",
+    "title": "Catching Up About Family",
+    "titleJa": "家族の近況を語り合う",
+    "category": "daily",
+    "level": 4,
+    "setting": "A cozy cafe on a Sunday afternoon. The user meets an old friend they have not seen for almost a year, and they catch up on each other's family news over coffee.",
+    "aiRole": "An old friend who recently moved back to the area and is eager to hear the user's family news",
+    "userRole": "A friend sharing family updates over coffee",
+    "goal": "Share your family's recent news in detail, react warmly to your friend's updates, and suggest getting the families together.",
+    "goalJa": "家族の近況を詳しく伝え、友人の近況にも温かく反応し、家族ぐるみで会う話につなげる",
+    "keyPhrases": [
+      { "en": "It's been ages! How have you been?", "ja": "久しぶり！元気にしてた？" },
+      { "en": "My dad finally retired, so my parents travel a lot now.", "ja": "父がついに退職して、両親は今よく旅行しているよ。", "note": "so で結果をつなぐ" },
+      { "en": "Time really flies.", "ja": "時間が経つのは本当に早いね。" },
+      { "en": "We should get our families together sometime.", "ja": "今度、家族ぐるみで集まろうよ。" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the user excitedly after almost a year apart, say they look great, and ask how they and their family have been.",
+        "hintJa": "久しぶりのあいさつをして、家族の近況を1つ詳しく話しましょう（過去形で）",
+        "hintEn": "It's been ages...",
+        "modelAnswer": "It's been ages! We're all doing well. Actually, my dad finally retired last month, so my parents have been traveling a lot."
+      },
+      {
+        "aiIntent": "React with warm surprise and ask a follow-up question about that news. Then briefly mention that your sister just had a baby.",
+        "hintJa": "相手のニュースにお祝いの気持ちを伝えて、質問を返しましょう",
+        "hintEn": "Congratulations! That's...",
+        "modelAnswer": "Congratulations! That's wonderful news. How is your sister doing? Is it her first baby?"
+      },
+      {
+        "aiIntent": "Answer happily with a small detail about the baby, then ask the user what has changed most in their own daily life this year.",
+        "hintJa": "この1年の生活の変化を、理由や背景も添えて話しましょう",
+        "hintEn": "The biggest change...",
+        "modelAnswer": "The biggest change is that I started working from home twice a week, which gives me more time with my family in the evenings."
+      },
+      {
+        "aiIntent": "Comment on how quickly time flies, then suggest meeting again soon and ask when might work for the user.",
+        "hintJa": "家族ぐるみで集まろうと提案して、具体的な時期を出してみましょう",
+        "hintEn": "We should get...",
+        "modelAnswer": "We should get our families together sometime. How about a barbecue next month when the weather warms up?"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "past-events",
+        "descriptionJa": "過去形で家族の出来事を2回話す",
+        "check": "Did the user describe past family events using past tense verbs at least twice?"
+      },
+      {
+        "id": "warm-reaction",
+        "descriptionJa": "相手の近況にお祝いや共感のリアクションを1回する",
+        "check": "Did the user react to the friend's news with congratulations or empathy, for example 'Congratulations!' or 'That's wonderful'?"
+      }
+    ],
+    "targetPhonemes": ["DH", "ER", "F", "AE"],
+    "estimatedMinutes": 11,
+    "freeTalkPrompt": "Continue catching up as the old friend. Dig deeper into family topics: memorable family moments this year, how relatives are changing, and plans for the holidays. Share believable short updates about your own family, occasionally use natural idioms, and keep the tone warm and a little nostalgic."
+  },
+  {
+    "id": "b-daily-005",
+    "source": "bundled",
+    "title": "A Delicate Chat With Your Neighbor",
+    "titleJa": "ご近所の悩みをやんわり解決",
+    "category": "daily",
+    "level": 5,
+    "setting": "Late afternoon at the shared entrance of a small apartment building. The user has decided to gently raise the issue of late-night guitar noise with an otherwise friendly neighbor, without damaging the relationship.",
+    "aiRole": "A friendly but slightly defensive neighbor who practices guitar late at night and does not realize it bothers anyone",
+    "userRole": "A resident raising a noise concern tactfully while keeping the relationship good",
+    "goal": "Raise the noise issue without causing offense, acknowledge the neighbor's side, and negotiate a concrete compromise you both accept.",
+    "goalJa": "角を立てずに騒音の問題を切り出し、相手の事情もくみ取りながら、双方が納得できる具体的な妥協案をまとめる",
+    "keyPhrases": [
+      { "en": "There's something I've been meaning to bring up.", "ja": "前から言おうと思っていたことがあるんです。", "note": "bring up=話題を切り出す" },
+      { "en": "I don't want to make a big deal out of this, but...", "ja": "大ごとにするつもりはないのですが…。" },
+      { "en": "I completely see where you're coming from.", "ja": "おっしゃることはよく分かります。" },
+      { "en": "Would you be open to keeping it down after ten?", "ja": "10時以降は音量を抑えていただくことはできますか？", "note": "Would you be open to 〜=柔らかい提案" },
+      { "en": "That works for me.", "ja": "それで大丈夫です。" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the user cheerfully and make light small talk about the day, completely unaware that anything is wrong.",
+        "hintJa": "雑談に応じたあと、「前から話したいことがあった」と切り出しましょう",
+        "hintEn": "Actually, there's something...",
+        "modelAnswer": "Actually, there's something I've been meaning to bring up, if you have a minute."
+      },
+      {
+        "aiIntent": "Look a little surprised but stay friendly, and ask what it is.",
+        "hintJa": "大ごとにしたくない前置きをしてから、深夜のギターの音について具体的に伝えましょう",
+        "hintEn": "I don't want to...",
+        "modelAnswer": "I don't want to make a big deal out of this, but I can sometimes hear your guitar past midnight, and it's been keeping me up on weeknights."
+      },
+      {
+        "aiIntent": "Get slightly defensive: apologize vaguely, but explain that late night is the only time you can practice because of your long work hours.",
+        "hintJa": "相手の事情への理解を示しつつ、譲れない点（平日の夜は困る）をはっきり伝えましょう",
+        "hintEn": "I completely see...",
+        "modelAnswer": "I completely see where you're coming from — evenings are precious when you work long hours. That said, weeknights are hard for me because I start work early."
+      },
+      {
+        "aiIntent": "Soften your tone and ask what the user would suggest as a fair solution.",
+        "hintJa": "具体的な妥協案を、婉曲な表現で提案しましょう（Would you be open to...）",
+        "hintEn": "Would you be open...",
+        "modelAnswer": "Would you be open to keeping it down after ten on weeknights? Weekends wouldn't bother me at all."
+      },
+      {
+        "aiIntent": "Accept the compromise with relief, offer to practice with headphones on weeknights, and thank the user for being direct but kind.",
+        "hintJa": "合意を確認して、良い関係を保つひとことで締めくくりましょう",
+        "hintEn": "That works for...",
+        "modelAnswer": "That works for me. Honestly, I'm glad we talked — I'd much rather sort things out over a chat than let them simmer."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "soften-request",
+        "descriptionJa": "依頼・提案を婉曲表現で1回する（Would you be open to / Would you mind など）",
+        "check": "Did the user make a request or proposal using softened, indirect language such as 'Would you be open to...' or 'Would you mind...'?"
+      },
+      {
+        "id": "acknowledge-side",
+        "descriptionJa": "相手の立場への理解を明示的に1回示す",
+        "check": "Did the user explicitly acknowledge the neighbor's perspective or circumstances, for example 'I see where you're coming from' or 'I understand you can only practice at night'?"
+      }
+    ],
+    "targetPhonemes": ["DH", "TH", "W", "AH"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the neighbor after the agreement, relieved and chatty. Steer the conversation to lighter topics — music, the building, life in the neighborhood — and occasionally revisit the agreement naturally, such as mentioning the headphones. Use idiomatic, native-level English so the user can practice keeping a warm tone after a difficult conversation."
+  }
+]

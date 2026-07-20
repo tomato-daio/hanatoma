@@ -1,0 +1,412 @@
+[
+  {
+    "id": "b-shopping-001",
+    "source": "bundled",
+    "title": "Buying a T-Shirt",
+    "titleJa": "Tシャツを買う",
+    "category": "shopping",
+    "level": 1,
+    "setting": "A small casual clothing shop on a quiet street. The customer is standing at a display table, holding a plain T-shirt they like. A friendly clerk is nearby.",
+    "aiRole": "A friendly clerk at a casual clothing shop",
+    "userRole": "A customer who wants to buy a T-shirt",
+    "goal": "Ask the price and the size, then buy the T-shirt and pay by card.",
+    "goalJa": "値段とサイズを聞いて、Tシャツをカードで買う",
+    "keyPhrases": [
+      {
+        "en": "How much is this?",
+        "ja": "これはいくらですか？"
+      },
+      {
+        "en": "Do you have a medium?",
+        "ja": "Mサイズはありますか？"
+      },
+      {
+        "en": "I'll take it.",
+        "ja": "これをください。",
+        "note": "買うと決めたときの決まり文句"
+      },
+      {
+        "en": "Can I pay by card?",
+        "ja": "カードで払えますか？"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the customer warmly and ask if they need any help.",
+        "hintJa": "持っているTシャツの値段をたずねてみましょう。",
+        "hintEn": "How much is",
+        "modelAnswer": "Hi. How much is this T-shirt?"
+      },
+      {
+        "aiIntent": "Say the T-shirt is 15 dollars and ask what size the customer needs.",
+        "hintJa": "Mサイズがあるか聞いてみましょう。",
+        "hintEn": "Do you have",
+        "modelAnswer": "Do you have a medium?"
+      },
+      {
+        "aiIntent": "Say yes, hand the customer a medium, and ask if they would like it.",
+        "hintJa": "買うと決めたことを、決まり文句で伝えましょう。",
+        "hintEn": "I'll take it",
+        "modelAnswer": "Yes. I'll take it, please."
+      },
+      {
+        "aiIntent": "Walk to the register, tell the customer the total is 15 dollars, and wait for payment.",
+        "hintJa": "カードで払えるか聞いてみましょう。",
+        "hintEn": "Can I pay",
+        "modelAnswer": "Can I pay by card?"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "ask-two-questions",
+        "descriptionJa": "質問を2回以上する",
+        "check": "Did the user ask at least two questions during the conversation?"
+      },
+      {
+        "id": "say-thanks",
+        "descriptionJa": "お礼（Thank you など）を1回言う",
+        "check": "Did the user thank the clerk at least once, for example by saying 'Thank you' or 'Thanks'?"
+      }
+    ],
+    "targetPhonemes": ["DH", "AH", "IH", "R"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the shop clerk after the purchase is finished. Make small talk in very simple English: ask the customer what colors they like, or whether they are shopping for anything else today. Keep every sentence under 8 words and use only basic vocabulary."
+  },
+  {
+    "id": "b-shopping-002",
+    "source": "bundled",
+    "title": "Trying On Sneakers",
+    "titleJa": "スニーカーを試着する",
+    "category": "shopping",
+    "level": 2,
+    "setting": "A shoe store inside a shopping mall. The customer is holding a pair of white sneakers from the display shelf. Fitting stools and a mirror are nearby.",
+    "aiRole": "A helpful clerk at a shoe store",
+    "userRole": "A customer who wants to try on sneakers and find the right size",
+    "goal": "Try the sneakers on, ask for a different size and color, and decide whether to buy them.",
+    "goalJa": "スニーカーを試着し、サイズや色違いを頼んで、買うか決める",
+    "keyPhrases": [
+      {
+        "en": "Can I try these on?",
+        "ja": "これを試着してもいいですか？"
+      },
+      {
+        "en": "They're a little tight.",
+        "ja": "少しきついです。"
+      },
+      {
+        "en": "Do you have these in a bigger size?",
+        "ja": "これの大きいサイズはありますか？"
+      },
+      {
+        "en": "Do you have them in black?",
+        "ja": "黒はありますか？",
+        "note": "色違いを聞く定番の形"
+      },
+      {
+        "en": "I'll think about it.",
+        "ja": "少し考えます。",
+        "note": "その場で決めたくないときに便利"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Welcome the customer and ask if they are looking for anything today.",
+        "hintJa": "手に持っているスニーカーを試着したいと伝えましょう。",
+        "hintEn": "Can I try",
+        "modelAnswer": "Yes, I like these. Can I try them on?"
+      },
+      {
+        "aiIntent": "Say of course, and ask what size the customer wears.",
+        "hintJa": "自分の靴のサイズを伝えましょう（例: size 25）。",
+        "hintEn": "I'm a size",
+        "modelAnswer": "I'm a size 25, I think."
+      },
+      {
+        "aiIntent": "Bring the shoes in that size and ask how they feel after the customer tries them on.",
+        "hintJa": "少しきついと伝えて、一つ大きいサイズを頼みましょう。",
+        "hintEn": "They're a little",
+        "modelAnswer": "They're a little tight. Do you have a bigger size?"
+      },
+      {
+        "aiIntent": "Bring the bigger size and mention that these sneakers also come in black.",
+        "hintJa": "はき心地がよいことを伝えて、黒があるなら見たいと言いましょう。",
+        "hintEn": "These feel good",
+        "modelAnswer": "These feel good. Can I see the black ones, too?"
+      },
+      {
+        "aiIntent": "Show the black pair and ask which ones the customer would like to take.",
+        "hintJa": "どちらを買うか（または少し考えるか）を伝えましょう。",
+        "hintEn": "I'll take the",
+        "modelAnswer": "I'll take the black ones, please."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "describe-fit",
+        "descriptionJa": "はき心地（きつい・ちょうどいい等）を自分の言葉で伝える",
+        "check": "Did the user describe how the shoes feel, for example saying they are tight, comfortable, or too big?"
+      },
+      {
+        "id": "ask-color",
+        "descriptionJa": "色について質問を1回する",
+        "check": "Did the user ask at least one question about color options?"
+      }
+    ],
+    "targetPhonemes": ["R", "DH", "L", "IY"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the shoe store clerk after the customer has decided. Chat casually about what they will use the sneakers for, recommend one matching item such as socks, and answer simple questions. Use short, simple sentences suitable for an A2 learner."
+  },
+  {
+    "id": "b-shopping-003",
+    "source": "bundled",
+    "title": "Returning a Sweater",
+    "titleJa": "セーターを返品する",
+    "category": "shopping",
+    "level": 3,
+    "setting": "The customer service counter of a mid-size clothing store. The customer has a folded sweater in a shopping bag and the receipt in hand. There is no line behind them.",
+    "aiRole": "A polite customer service staff member who handles returns and exchanges",
+    "userRole": "A customer who bought a sweater last Saturday and found a small hole in the sleeve",
+    "goal": "Explain why you want to return the sweater, show the receipt, and get a refund.",
+    "goalJa": "返品したい理由を説明し、レシートを見せて返金してもらう",
+    "keyPhrases": [
+      {
+        "en": "I'd like to return this sweater.",
+        "ja": "このセーターを返品したいのですが。"
+      },
+      {
+        "en": "I bought it last Saturday.",
+        "ja": "先週の土曜日に買いました。"
+      },
+      {
+        "en": "There's a small hole in the sleeve.",
+        "ja": "袖に小さな穴があるんです。"
+      },
+      {
+        "en": "Could I get a refund?",
+        "ja": "返金していただけますか？",
+        "note": "Can I より丁寧な頼み方"
+      },
+      {
+        "en": "Here's the receipt.",
+        "ja": "レシートはこちらです。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the customer at the service counter and ask how you can help.",
+        "hintJa": "セーターを返品したいと切り出しましょう。",
+        "hintEn": "I'd like to",
+        "modelAnswer": "Hi, I'd like to return this sweater."
+      },
+      {
+        "aiIntent": "Ask when the customer bought it and whether they have the receipt.",
+        "hintJa": "いつ買ったかを過去形で伝えて、レシートを渡しましょう。",
+        "hintEn": "I bought it",
+        "modelAnswer": "I bought it last Saturday. Here's the receipt."
+      },
+      {
+        "aiIntent": "Thank them, then ask what the problem with the sweater is.",
+        "hintJa": "袖に穴を見つけたので着られない、と理由を説明しましょう。",
+        "hintEn": "There's a small",
+        "modelAnswer": "There's a small hole in the sleeve, so I can't wear it."
+      },
+      {
+        "aiIntent": "Apologize for the trouble and offer either an exchange for a new one or a full refund.",
+        "hintJa": "交換ではなく返金をお願いしてみましょう。丁寧な言い方で。",
+        "hintEn": "Could I get",
+        "modelAnswer": "Could I get a refund, please? I don't need another one."
+      },
+      {
+        "aiIntent": "Agree, process the refund, and explain the money will return to their card in three to five days.",
+        "hintJa": "お礼を言って、返金の内容をひとこと確認しましょう。",
+        "hintEn": "Thank you, so",
+        "modelAnswer": "Thank you. So the money goes back to my card in a few days, right?"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "past-tense-twice",
+        "descriptionJa": "過去形の動詞を2回以上使う",
+        "check": "Did the user use past tense verbs at least twice, for example 'bought', 'found', or 'was'?"
+      },
+      {
+        "id": "give-reason",
+        "descriptionJa": "返品の理由を because や so でつなげて説明する",
+        "check": "Did the user explain the reason for the return using a connector such as 'because' or 'so'?"
+      }
+    ],
+    "targetPhonemes": ["R", "F", "IY", "L"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the customer service staff member after the refund is processed. Make natural small talk: mention that a new seasonal collection has just arrived, ask if the customer would like to look around, and answer any questions about sizes or the store's return policy in plain B1-level English."
+  },
+  {
+    "id": "b-shopping-004",
+    "source": "bundled",
+    "title": "Haggling at a Flea Market",
+    "titleJa": "フリーマーケットで値段交渉",
+    "category": "shopping",
+    "level": 4,
+    "setting": "A busy weekend flea market. The customer is examining a vintage leather jacket at a secondhand stall. The handwritten price tag says 80 dollars. The seller is watching with a smile.",
+    "aiRole": "A seasoned flea market seller who enjoys friendly haggling but does not drop prices easily",
+    "userRole": "A customer who wants the vintage jacket but thinks 80 dollars is too high",
+    "goal": "Point out the jacket's flaws, negotiate the price down, and close the deal at a price you are happy with.",
+    "goalJa": "ジャケットの難点を指摘して値下げ交渉し、納得できる価格で手を打つ",
+    "keyPhrases": [
+      {
+        "en": "Would you take 60 for it?",
+        "ja": "60ドルでどうですか？",
+        "note": "具体的な金額で逆提案する交渉の定番"
+      },
+      {
+        "en": "There's a scratch right here.",
+        "ja": "ここに傷がありますよ。"
+      },
+      {
+        "en": "Can you do any better on the price?",
+        "ja": "もう少し値段を頑張れませんか？"
+      },
+      {
+        "en": "Let's meet in the middle.",
+        "ja": "間を取りましょう。",
+        "note": "妥協点を提案する慣用表現"
+      },
+      {
+        "en": "It's a deal.",
+        "ja": "それで決まりです。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Notice the customer looking at the jacket and pitch it enthusiastically: genuine vintage leather, worth every penny of the 80 dollars.",
+        "hintJa": "興味は見せつつ、中古にしては高いと感じていることを伝えましょう。",
+        "hintEn": "I like it, but",
+        "modelAnswer": "I like it, but 80 dollars feels a bit steep for a used jacket."
+      },
+      {
+        "aiIntent": "Defend the price by praising the leather quality and the jacket's age, but hint that you might be a little flexible.",
+        "hintJa": "袖の傷や裏地の傷みなど、難点を指摘して値下げの根拠にしましょう。",
+        "hintEn": "There's a scratch",
+        "modelAnswer": "There's a scratch right here on the sleeve, and the lining looks pretty worn."
+      },
+      {
+        "aiIntent": "Admit the flaws exist and offer to come down to 75 dollars.",
+        "hintJa": "まだ高いと伝えて、思い切って60ドルの逆提案をしましょう。",
+        "hintEn": "Would you take",
+        "modelAnswer": "That's still high for the condition. Would you take 60 for it?"
+      },
+      {
+        "aiIntent": "Say 60 is too low, counter with 70, and insist that is the best you can do.",
+        "hintJa": "「間を取って65」と妥協案を出しましょう。",
+        "hintEn": "Let's meet in",
+        "modelAnswer": "Come on, let's meet in the middle and call it 65."
+      },
+      {
+        "aiIntent": "Laugh, agree to 65 dollars, and start wrapping the jacket while saying the customer drives a hard bargain.",
+        "hintJa": "取引成立を伝えて、現金で支払いましょう。",
+        "hintEn": "It's a deal",
+        "modelAnswer": "It's a deal. Here's 65 in cash — pleasure doing business with you."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "counter-offer",
+        "descriptionJa": "具体的な金額で逆提案を1回以上する",
+        "check": "Did the user make at least one counter-offer with a specific price?"
+      },
+      {
+        "id": "two-flaws",
+        "descriptionJa": "商品の難点を根拠として2つ以上挙げる",
+        "check": "Did the user mention at least two specific flaws of the item, such as a scratch or worn lining, to justify a lower price?"
+      }
+    ],
+    "targetPhonemes": ["R", "DH", "L", "AE"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the flea market seller after the deal is done. Chat about other items at the stall, ask what kinds of things the customer collects, and tell a short colorful story about where the jacket came from. Keep the friendly haggling spirit and natural B2-level English with some idioms."
+  },
+  {
+    "id": "b-shopping-005",
+    "source": "bundled",
+    "title": "Past the Return Window",
+    "titleJa": "返品期限切れの不良品交渉",
+    "category": "shopping",
+    "level": 5,
+    "setting": "The customer service desk of a large electronics store. The customer has brought in premium wireless headphones that stopped charging five weeks after purchase. The store's return policy allows returns within 30 days only.",
+    "aiRole": "A courteous but rule-bound customer service manager who initially sticks firmly to the 30-day return policy",
+    "userRole": "A customer whose expensive headphones failed just after the return window closed",
+    "goal": "Acknowledge the policy while persuading the manager to offer a replacement or store credit for the faulty headphones.",
+    "goalJa": "規定を尊重しつつ交渉し、交換またはストアクレジットの対応を引き出す",
+    "keyPhrases": [
+      {
+        "en": "I appreciate the policy, but this is clearly a manufacturing defect.",
+        "ja": "規定は理解していますが、これは明らかに製造上の欠陥です。",
+        "note": "相手の立場を認めてから主張する型"
+      },
+      {
+        "en": "I'd expect a product at this price point to last more than five weeks.",
+        "ja": "この価格帯の製品が5週間しかもたないのは想定外です。"
+      },
+      {
+        "en": "Is there any room for flexibility here?",
+        "ja": "多少の融通は利きませんか？",
+        "note": "正面から要求せず柔らかく粘る言い方"
+      },
+      {
+        "en": "I'd rather we sorted this out here than take it further.",
+        "ja": "大ごとにするより、この場で解決したいのです。",
+        "note": "丁寧なまま静かに圧力をかける表現"
+      },
+      {
+        "en": "I appreciate you going the extra mile.",
+        "ja": "期待以上のご対応に感謝します。",
+        "note": "go the extra mile = 期待以上の対応をする"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the customer, listen to the issue, check the receipt date, and point out that the purchase was five weeks ago — past the 30-day return window.",
+        "hintJa": "症状（充電できない）を簡潔に述べ、期限は承知の上で不良品だと切り出しましょう。",
+        "hintEn": "I understand it's",
+        "modelAnswer": "I understand it's past the window, but these simply stopped charging after five weeks of normal use."
+      },
+      {
+        "aiIntent": "Politely repeat that policy is policy, and suggest the customer contact the manufacturer directly instead.",
+        "hintJa": "価格帯への当然の期待と、「メーカーではなくこの店で買った」という点を丁寧に主張しましょう。",
+        "hintEn": "With all due respect",
+        "modelAnswer": "With all due respect, I'd expect a product at this price point to last more than five weeks — and I bought it from this store, not from the manufacturer."
+      },
+      {
+        "aiIntent": "Soften slightly. Ask whether the customer has the receipt and whether there is any sign of damage or misuse.",
+        "hintJa": "レシートを見せて丁寧に使ってきたことを伝え、「融通は利かないか」と柔らかく粘りましょう。",
+        "hintEn": "Here's the receipt",
+        "modelAnswer": "Here's the receipt, and there's not a scratch on them. Is there any room for flexibility here?"
+      },
+      {
+        "aiIntent": "Offer a discounted paid repair as a compromise, but say a replacement is not possible.",
+        "hintJa": "欠陥品の有償修理には納得できないと伝え、交換かストアクレジットを提案。「大ごとにしたくない」と穏やかに圧をかけましょう。",
+        "hintEn": "I'd rather we",
+        "modelAnswer": "A paid repair doesn't sit right with me for a defect. I'd rather we sorted this out here than take it further — would a replacement or store credit be possible?"
+      },
+      {
+        "aiIntent": "Concede: offer store credit for the full amount as a one-time goodwill gesture, and ask the customer to understand this is exceptional.",
+        "hintJa": "提案を受け入れ、慣用表現を交えて感謝を伝えつつ話をまとめましょう。",
+        "hintEn": "That works for",
+        "modelAnswer": "That works for me — I appreciate you going the extra mile on this."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "concede-twice",
+        "descriptionJa": "相手の立場をいったん認める表現（I understand / I appreciate 等）を2回以上使う",
+        "check": "Did the user acknowledge the store's position or policy at least twice using concession phrases such as 'I understand' or 'I appreciate'?"
+      },
+      {
+        "id": "use-idiom",
+        "descriptionJa": "慣用表現や婉曲表現（go the extra mile / room for flexibility / sort out 等）を1回以上使う",
+        "check": "Did the user use at least one idiomatic or softening expression such as 'go the extra mile', 'room for flexibility', or 'sort this out'?"
+      }
+    ],
+    "targetPhonemes": ["R", "DH", "W", "ER"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the customer service manager after the store credit has been agreed. Talk naturally about which products the credit could go toward, discuss extended warranty options and their fine print, and respond to nuanced questions with native-level phrasing, hedging, and idiomatic expressions appropriate for a C1 learner."
+  }
+]

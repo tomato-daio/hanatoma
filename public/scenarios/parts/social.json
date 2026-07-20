@@ -1,0 +1,318 @@
+[
+  {
+    "id": "b-social-001",
+    "source": "bundled",
+    "title": "First Introductions at an Exchange Event",
+    "titleJa": "国際交流イベントで初対面のあいさつ",
+    "category": "social",
+    "level": 1,
+    "setting": "A casual international exchange event at a community center. People are chatting over tea and snacks, wearing name stickers. A friendly participant walks up to the user to say hello.",
+    "aiRole": "A friendly participant at an international exchange event, meeting the user for the first time",
+    "userRole": "A participant who came to the event alone and meets someone new",
+    "goal": "Introduce yourself, exchange names, say where you are from, and share one thing you like.",
+    "goalJa": "自己紹介をして名前と出身地を伝え合い、好きなものを1つ話す",
+    "keyPhrases": [
+      { "en": "Nice to meet you.", "ja": "はじめまして。" },
+      { "en": "My name is Ken.", "ja": "私の名前はケンです。", "note": "名前の部分を自分の名前に置き換えて使う" },
+      { "en": "Where are you from?", "ja": "出身はどちらですか？" },
+      { "en": "I like movies.", "ja": "映画が好きです。" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Walk up to the user with a big smile, say hello, and say it is nice to meet them. Keep it very short and simple.",
+        "hintJa": "あいさつを返して、「はじめまして」と言いましょう",
+        "hintEn": "Hello! Nice to...",
+        "modelAnswer": "Hello! Nice to meet you."
+      },
+      {
+        "aiIntent": "Ask for the user's name in a very simple way, without saying your own name yet.",
+        "hintJa": "自分の名前を答えて、相手の名前も聞いてみましょう",
+        "hintEn": "My name is...",
+        "modelAnswer": "My name is Ken. What's your name?"
+      },
+      {
+        "aiIntent": "Say your name, say you are from Canada, and then ask where the user is from.",
+        "hintJa": "自分の出身地を短く答えましょう",
+        "hintEn": "I'm from...",
+        "modelAnswer": "I'm from Japan."
+      },
+      {
+        "aiIntent": "Say that you like music, then ask the user if they like music too.",
+        "hintJa": "好きかどうか答えて、自分の好きなものも1つ言いましょう",
+        "hintEn": "Yes, I do...",
+        "modelAnswer": "Yes, I do. I like movies, too."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "ask-back",
+        "descriptionJa": "相手にも質問を1回する（名前や出身など）",
+        "check": "Did the user ask the AI at least one question, such as asking their name or where they are from?"
+      },
+      {
+        "id": "say-like",
+        "descriptionJa": "I like 〜 を使って好きなものを1つ言う",
+        "check": "Did the user say at least one thing they like using a phrase such as 'I like ...'?"
+      }
+    ],
+    "targetPhonemes": ["L", "F", "R", "IY"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the friendly participant at the exchange event. Ask one very simple question at a time about the user's hobbies, favorite food, or hometown, using basic words and sentences of eight words or fewer. React warmly and simply, and end by saying you enjoyed talking with them."
+  },
+  {
+    "id": "b-social-002",
+    "source": "bundled",
+    "title": "Inviting a Classmate to Go Bowling",
+    "titleJa": "クラスメイトをボウリングに誘う",
+    "category": "social",
+    "level": 2,
+    "setting": "After an evening English class, students are packing up their bags. The user chats with a friendly classmate near the door and wants to invite them to go bowling this weekend.",
+    "aiRole": "A friendly classmate from the user's English class who enjoys casual chats",
+    "userRole": "A student who wants to invite the classmate to go bowling this weekend",
+    "goal": "Invite your classmate to go bowling and agree on a day, a time, and a meeting place.",
+    "goalJa": "クラスメイトをボウリングに誘い、日時と待ち合わせ場所を決める",
+    "keyPhrases": [
+      { "en": "Are you free this weekend?", "ja": "今週末は空いていますか？" },
+      { "en": "Would you like to go bowling with us?", "ja": "一緒にボウリングに行きませんか？", "note": "Would you like to 〜? は丁寧な誘い方" },
+      { "en": "How about Saturday afternoon?", "ja": "土曜日の午後はどうですか？" },
+      { "en": "Let's meet at the station.", "ja": "駅で待ち合わせましょう。" },
+      { "en": "I'm looking forward to it!", "ja": "楽しみにしています！" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Chat casually after class. Say that today's class was fun, then ask the user if they have any plans for the weekend.",
+        "hintJa": "まだ予定がないと答えて、相手の予定を聞いてみましょう",
+        "hintEn": "Not yet. Are...",
+        "modelAnswer": "Not yet. Are you free this weekend?"
+      },
+      {
+        "aiIntent": "Say you are free on Saturday and ask why the user is asking.",
+        "hintJa": "ボウリングに誘ってみましょう",
+        "hintEn": "Would you like...",
+        "modelAnswer": "Would you like to go bowling with me and some friends?"
+      },
+      {
+        "aiIntent": "Say yes happily, mention you have not bowled in years, and ask what time and where you should meet.",
+        "hintJa": "日時と待ち合わせ場所を提案しましょう",
+        "hintEn": "How about Saturday...",
+        "modelAnswer": "How about Saturday afternoon? Let's meet at the station at one."
+      },
+      {
+        "aiIntent": "Agree to the plan, repeat the day, time, and place to confirm, and say you are excited.",
+        "hintJa": "確認して、楽しみだと伝えましょう",
+        "hintEn": "Great! See you...",
+        "modelAnswer": "Great! See you on Saturday. I'm looking forward to it!"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "suggest-time",
+        "descriptionJa": "How about 〜? などを使って日時を提案する",
+        "check": "Did the user suggest a specific day or time using a phrase like 'How about ...?' or 'Let's ...'?"
+      },
+      {
+        "id": "express-anticipation",
+        "descriptionJa": "「楽しみにしている」と伝える",
+        "check": "Did the user express anticipation, for example with 'I'm looking forward to it' or 'I can't wait'?"
+      }
+    ],
+    "targetPhonemes": ["W", "F", "L", "IY"],
+    "estimatedMinutes": 9,
+    "freeTalkPrompt": "Keep chatting as the friendly classmate. Talk about bowling, ask whether the user is good at it, and discuss what you should eat together afterwards. Ask one simple question at a time and keep your sentences short and friendly."
+  },
+  {
+    "id": "b-social-003",
+    "source": "bundled",
+    "title": "Small Talk at a House Party",
+    "titleJa": "ホームパーティーでの雑談",
+    "category": "social",
+    "level": 3,
+    "setting": "A friend's housewarming party on a Saturday evening. Music is playing, and guests are chatting with drinks and snacks. The user knows only the host and stands near the snack table, where another guest starts a conversation.",
+    "aiRole": "A sociable guest at the party who loves photography and hiking, and enjoys meeting new people",
+    "userRole": "A guest who knows only the host and wants to make a new friend",
+    "goal": "Start a conversation with a stranger, find a shared interest, and exchange social media accounts.",
+    "goalJa": "初対面のゲストと会話を始め、共通の趣味を見つけてSNSのアカウントを交換する",
+    "keyPhrases": [
+      { "en": "How do you know the host?", "ja": "主催者とはどういう知り合いなんですか？", "note": "パーティーで定番の会話の切り出し方" },
+      { "en": "What do you do in your free time?", "ja": "休みの日は何をしていますか？" },
+      { "en": "That sounds really fun.", "ja": "それはすごく楽しそうですね。" },
+      { "en": "I'm really into taking photos.", "ja": "写真を撮るのにハマっているんです。", "note": "be into 〜 = 〜にハマっている" },
+      { "en": "Do you have an account I can follow?", "ja": "フォローできるアカウントはありますか？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Standing near the snack table, smile at the user and comment that the party is really fun and the food is great. Wait for the user to respond.",
+        "hintJa": "同意してから、相手と主催者の関係を聞いてみましょう",
+        "hintEn": "It really is...",
+        "modelAnswer": "It really is! By the way, how do you know the host?"
+      },
+      {
+        "aiIntent": "Explain that you are the host's old college friend, then ask the user the same question about how they know the host.",
+        "hintJa": "主催者との関係を答えましょう（例: 以前同じ職場だった）",
+        "hintEn": "We used to...",
+        "modelAnswer": "We used to work at the same office. We've been friends for years."
+      },
+      {
+        "aiIntent": "Say that is nice, then ask the user what they like to do in their free time.",
+        "hintJa": "自分の趣味を「ハマっている」という表現で話してみましょう",
+        "hintEn": "I'm really into...",
+        "modelAnswer": "I'm really into taking photos. I often go out on weekends just to take pictures."
+      },
+      {
+        "aiIntent": "React with excitement because you also love photography. Describe the photos you take on hiking trips, then ask what the user likes to photograph.",
+        "hintJa": "相手の話に感想を言ってから、自分が何を撮るのか答えましょう",
+        "hintEn": "That sounds really...",
+        "modelAnswer": "That sounds really fun. I mostly take photos of food and street scenes around town."
+      },
+      {
+        "aiIntent": "Suggest sharing photos with each other sometime, and mention that you post your hiking photos online.",
+        "hintJa": "相手のアカウントをフォローしたいと伝えましょう",
+        "hintEn": "Do you have...",
+        "modelAnswer": "Do you have an account I can follow? I'd love to see your hiking photos."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "followup-question",
+        "descriptionJa": "相手の話を深掘りする質問を2回する",
+        "check": "Did the user ask at least two follow-up questions about something the AI said, rather than only answering questions?"
+      },
+      {
+        "id": "past-tense",
+        "descriptionJa": "過去形を2回以上使う",
+        "check": "Did the user correctly use past tense verbs at least twice in the conversation?"
+      }
+    ],
+    "targetPhonemes": ["R", "F", "DH", "L"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue the party conversation naturally as the sociable guest. Share stories about your favorite hiking photo spots, ask about the best photo the user has ever taken, and react warmly to what they say. Keep the tone light and friendly, asking one or two questions at a time."
+  },
+  {
+    "id": "b-social-004",
+    "source": "bundled",
+    "title": "Declining an Invitation Gracefully",
+    "titleJa": "誘いを角を立てずに断る",
+    "category": "social",
+    "level": 4,
+    "setting": "A phone call on a Thursday evening. A close friend is organizing a big group camping trip for the coming weekend and calls to invite the user. The user is exhausted after a very busy month and wants a quiet weekend, but values the friendship and does not want to hurt the friend's feelings.",
+    "aiRole": "An enthusiastic close friend organizing a group camping trip, slightly pushy but good-natured",
+    "userRole": "A tired friend who wants to decline the invitation without damaging the relationship",
+    "goal": "Decline the camping invitation politely, explain your reasons honestly, and offer an alternative plan to keep the friendship strong.",
+    "goalJa": "キャンプの誘いを丁寧に断り、理由を正直に伝えたうえで、代わりの予定を自分から提案する",
+    "keyPhrases": [
+      { "en": "I really appreciate the invite, but...", "ja": "誘ってくれて本当にうれしいんだけど…", "note": "断る前のクッション表現" },
+      { "en": "I'm afraid I'll have to pass this time.", "ja": "残念だけど今回は遠慮しておくよ。" },
+      { "en": "It's been a hectic month for me.", "ja": "今月は本当にバタバタしていて。" },
+      { "en": "Can I take a rain check?", "ja": "また今度誘ってもらえる？", "note": "rain check = 「また次の機会に」という慣用表現" },
+      { "en": "How about we grab dinner next week instead?", "ja": "代わりに来週ご飯でもどう？" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Excitedly invite the user to a group camping trip this weekend. Mention the perfect weather forecast and that several mutual friends are coming.",
+        "hintJa": "まず感謝を伝えてから、行けないことをやわらかく切り出しましょう",
+        "hintEn": "That sounds amazing...",
+        "modelAnswer": "That sounds amazing, and I really appreciate the invite, but I'm afraid I can't make it this weekend."
+      },
+      {
+        "aiIntent": "Sound disappointed and gently push back. Say it will not be the same without them, and ask if they could come for just one day.",
+        "hintJa": "無理をせず、正直な理由（忙しくて休息が必要）を伝えましょう",
+        "hintEn": "I know, and...",
+        "modelAnswer": "I know, and I'm sorry. It's been a hectic month, and I really need a quiet weekend to recharge."
+      },
+      {
+        "aiIntent": "Accept the reason with understanding, but sound a little down. Say you were really looking forward to catching up with them.",
+        "hintJa": "次の機会をお願いしつつ、代わりの案を自分から出しましょう",
+        "hintEn": "Can I take...",
+        "modelAnswer": "Can I take a rain check? How about we grab dinner next week instead? It'll be my treat."
+      },
+      {
+        "aiIntent": "Brighten up and happily accept the dinner idea. Suggest deciding a day, and tease the user lightly that they owe you one.",
+        "hintJa": "曜日を決めて、キャンプを楽しんできてねと締めくくりましょう",
+        "hintEn": "Perfect, let's say...",
+        "modelAnswer": "Perfect, let's say Thursday then. Have an awesome time at the camp, and send me some photos!"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "soften-refusal",
+        "descriptionJa": "断る前にクッション表現（感謝や共感）を入れる",
+        "check": "Did the user soften the refusal with appreciation or empathy, such as 'I really appreciate...' or 'That sounds great, but...', before saying no?"
+      },
+      {
+        "id": "offer-alternative",
+        "descriptionJa": "代替案を自分から提案する",
+        "check": "Did the user proactively propose an alternative plan, such as meeting for dinner on another day?"
+      }
+    ],
+    "targetPhonemes": ["R", "F", "AE", "V"],
+    "estimatedMinutes": 11,
+    "freeTalkPrompt": "Continue as the close friend, now fully understanding and supportive. Chat about how stressful the user's month has been and what you are planning to do at the camp. Tease them lightly that they owe you a dinner, and keep the warm, familiar tone of close friends."
+  },
+  {
+    "id": "b-social-005",
+    "source": "bundled",
+    "title": "Thanking a Friend Who Went Above and Beyond",
+    "titleJa": "世話になった友人へ心からのお礼",
+    "category": "social",
+    "level": 5,
+    "setting": "A cozy cafe on a Sunday afternoon. The user has just finished moving into a new apartment. A close friend gave up three whole weekends to help with the move and even assembled all the furniture, but is modest and keeps brushing off any thanks. The user wants to express genuine gratitude and insist on doing something in return.",
+    "aiRole": "A modest, warm-hearted close friend who spent three weekends helping the user move and keeps playing down their own effort",
+    "userRole": "A friend determined to express heartfelt gratitude and give something back",
+    "goal": "Convey specific, heartfelt gratitude to a modest friend, and gracefully overcome their repeated refusals until they accept your thank-you gesture.",
+    "goalJa": "謙遜する友人に具体的で心のこもったお礼を伝え、遠慮を上手にかわしてお礼の申し出を受け入れてもらう",
+    "keyPhrases": [
+      { "en": "I can't thank you enough for everything.", "ja": "本当に感謝してもしきれないよ。" },
+      { "en": "You went above and beyond for me.", "ja": "期待をはるかに超えることをしてくれたね。", "note": "above and beyond = 期待以上のことをする慣用表現" },
+      { "en": "It meant the world to me.", "ja": "私にとって本当に大きなことだったんだ。", "note": "mean the world to 〜 = 〜にとって何より大切" },
+      { "en": "I owe you big time.", "ja": "君には大きな借りがあるよ。", "note": "カジュアルに恩を伝える慣用表現" },
+      { "en": "I insist — it's the least I can do.", "ja": "遠慮しないで。それくらいはさせてよ。" }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the user warmly and ask how the new apartment feels now that everything is set up. If the user starts thanking you, modestly wave it off.",
+        "hintJa": "新居の感想を伝えつつ、具体的な感謝を切り出しましょう",
+        "hintEn": "It finally feels...",
+        "modelAnswer": "It finally feels like home — and honestly, that's thanks to you. I can't thank you enough for giving up three whole weekends for me."
+      },
+      {
+        "aiIntent": "Play it down. Say it was nothing, that you enjoyed it, and that anyone would have done the same.",
+        "hintJa": "謙遜を否定して、相手がしてくれたことを具体的に挙げましょう",
+        "hintEn": "That's not true...",
+        "modelAnswer": "That's not true. You went above and beyond — you even assembled every single shelf while I was hopeless with the instructions."
+      },
+      {
+        "aiIntent": "Get a little embarrassed and change the subject, asking about the user's new neighborhood instead.",
+        "hintJa": "話をそらされても、感謝の話題にやんわり戻しましょう",
+        "hintEn": "It's a lovely...",
+        "modelAnswer": "It's a lovely area, but don't change the subject! What you did meant the world to me, and I'd feel terrible if I couldn't give something back."
+      },
+      {
+        "aiIntent": "Firmly but kindly refuse any gift or repayment, saying that seeing the user happily settled in is more than enough for you.",
+        "hintJa": "断られても引き下がらず、相手が断りにくい具体的なお礼を提案しましょう",
+        "hintEn": "I owe you...",
+        "modelAnswer": "I owe you big time, and my conscience won't rest until I've treated you to dinner at that steak place you keep talking about. I insist — it's the least I can do."
+      },
+      {
+        "aiIntent": "Finally give in with a laugh. Accept the dinner invitation and joke that you will order the most expensive dish on the menu.",
+        "hintJa": "冗談に乗って、温かく会話を締めくくりましょう",
+        "hintEn": "Deal! Order whatever...",
+        "modelAnswer": "Deal! Order whatever you like — after what you did, you've more than earned it."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "specific-gratitude",
+        "descriptionJa": "感謝の理由を具体的なエピソードで2つ以上述べる",
+        "check": "Did the user support their gratitude with at least two specific details about what the friend actually did for them?"
+      },
+      {
+        "id": "idiom-use",
+        "descriptionJa": "感謝や恩に関する慣用表現を2つ以上使う",
+        "check": "Did the user use at least two idiomatic gratitude expressions, such as 'I can't thank you enough', 'above and beyond', 'I owe you', or 'the least I can do'?"
+      }
+    ],
+    "targetPhonemes": ["TH", "DH", "ER", "L"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the modest friend, now relaxed after accepting the dinner. Reminisce together about funny moments during the move, tease each other affectionately, and chat about plans for a housewarming party. Speak naturally at native speed with idiomatic expressions, and occasionally hand the conversational lead back to the user."
+  }
+]

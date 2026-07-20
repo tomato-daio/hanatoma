@@ -1,0 +1,413 @@
+[
+  {
+    "id": "b-interview-001",
+    "source": "bundled",
+    "title": "Your First Interview Greetings",
+    "titleJa": "はじめての面接あいさつ",
+    "category": "interview",
+    "level": 1,
+    "setting": "A small, friendly company office. The applicant has just arrived for a short part-time job interview. It is their very first interview in English, and the interviewer keeps everything simple and kind.",
+    "aiRole": "A kind interviewer at a small company",
+    "userRole": "A job applicant at their first English interview",
+    "goal": "Greet the interviewer, introduce yourself simply, and thank them at the end.",
+    "goalJa": "面接官にあいさつし、自分のことを簡単に紹介して、最後にお礼を言う",
+    "keyPhrases": [
+      {
+        "en": "Nice to meet you.",
+        "ja": "はじめまして。",
+        "note": "面接の最初のあいさつの定番"
+      },
+      {
+        "en": "I'm here for the interview.",
+        "ja": "面接に来ました。"
+      },
+      {
+        "en": "I work at a restaurant.",
+        "ja": "レストランで働いています。"
+      },
+      {
+        "en": "I like talking with people.",
+        "ja": "人と話すのが好きです。"
+      },
+      {
+        "en": "Thank you for your time.",
+        "ja": "お時間をいただき、ありがとうございました。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Warmly greet the applicant, welcome them to the office, and ask for their name. Keep it very short and friendly.",
+        "hintJa": "あいさつをして、名前を名乗りましょう。「はじめまして」から始めるのが定番です。",
+        "hintEn": "Nice to meet",
+        "modelAnswer": "Nice to meet you. My name is Hana."
+      },
+      {
+        "aiIntent": "Ask what the applicant does now — their current job or studies. Use very simple words.",
+        "hintJa": "今している仕事を伝えましょう。「〜で働いています」の形が使えます。",
+        "hintEn": "I work at",
+        "modelAnswer": "I work at a restaurant."
+      },
+      {
+        "aiIntent": "Ask why they want this job. Happily accept any simple reason.",
+        "hintJa": "この仕事をしたい理由を、自分の好きなことを使って言ってみましょう。",
+        "hintEn": "I like",
+        "modelAnswer": "I like talking with people."
+      },
+      {
+        "aiIntent": "Close the interview kindly. Thank the applicant and say you will contact them soon.",
+        "hintJa": "最後にお礼を言って締めくくりましょう。",
+        "hintEn": "Thank you for",
+        "modelAnswer": "Thank you for your time."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "obj-greet",
+        "descriptionJa": "あいさつやお礼の決まり文句を2回使う（Nice to meet you / Thank you など）",
+        "check": "Check if the user used at least two greeting or thanking set phrases, such as 'Nice to meet you', 'Thank you for your time', or 'Hello'."
+      },
+      {
+        "id": "obj-i-sentences",
+        "descriptionJa": "「I」で始まる文を3回言う",
+        "check": "Check if the user produced at least three sentences starting with 'I', such as 'I work at...', 'I like...', or 'I'm here for...'."
+      }
+    ],
+    "targetPhonemes": ["TH", "W", "ER", "L"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Stay in character as the kind interviewer after the formal questions are done. Make easy small talk: ask one very short, simple question at a time about the applicant's hobbies, favorite food, or weekends. React warmly with short sentences and never correct their English."
+  },
+  {
+    "id": "b-interview-002",
+    "source": "bundled",
+    "title": "Talking About Your Work Experience",
+    "titleJa": "職歴をやさしく説明する",
+    "category": "interview",
+    "level": 2,
+    "setting": "An online first-round interview for a customer support position at a mid-size company. The interviewer wants to hear about the applicant's current job, daily tasks, and what they learned from their experience.",
+    "aiRole": "A calm HR interviewer conducting an online first-round interview",
+    "userRole": "An applicant explaining their work experience",
+    "goal": "Describe your current job, your main tasks, and what you learned from your experience.",
+    "goalJa": "今の仕事の内容と主な業務、経験から学んだことを説明する",
+    "keyPhrases": [
+      {
+        "en": "I work for a small company.",
+        "ja": "小さな会社で働いています。",
+        "note": "work for + 会社 / work at + 場所"
+      },
+      {
+        "en": "I have worked there for three years.",
+        "ja": "そこで3年間働いています。",
+        "note": "経験の長さは have worked ... for + 期間"
+      },
+      {
+        "en": "My main task is answering phone calls.",
+        "ja": "主な仕事は電話対応です。"
+      },
+      {
+        "en": "I learned how to work in a team.",
+        "ja": "チームで働くやり方を学びました。"
+      },
+      {
+        "en": "I can start next month.",
+        "ja": "来月から働き始められます。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Briefly greet the applicant and ask them to tell you about their current job.",
+        "hintJa": "今どんな会社で働いているかを伝えましょう。",
+        "hintEn": "I work for",
+        "modelAnswer": "I work for a small company in my town."
+      },
+      {
+        "aiIntent": "Ask what their main tasks are on a typical day.",
+        "hintJa": "主な業務を1つ紹介しましょう。「主な仕事は〜です」の形で。",
+        "hintEn": "My main task",
+        "modelAnswer": "My main task is answering phone calls from customers."
+      },
+      {
+        "aiIntent": "Ask how long they have worked there.",
+        "hintJa": "働いている期間を「for + 期間」で答えましょう。",
+        "hintEn": "I have worked",
+        "modelAnswer": "I have worked there for three years."
+      },
+      {
+        "aiIntent": "Ask what they learned from this job.",
+        "hintJa": "仕事から学んだことを過去形（learned）で言いましょう。",
+        "hintEn": "I learned how",
+        "modelAnswer": "I learned how to work in a team."
+      },
+      {
+        "aiIntent": "Ask when they could start if they get the job, then thank them warmly and close.",
+        "hintJa": "いつから働けるかを伝えましょう。",
+        "hintEn": "I can start",
+        "modelAnswer": "I can start next month."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "obj-past",
+        "descriptionJa": "過去形の動詞を2回使う（worked / learned など）",
+        "check": "Check if the user used past tense verbs at least twice, for example 'worked', 'learned', or 'started'."
+      },
+      {
+        "id": "obj-duration",
+        "descriptionJa": "「for + 期間」で経験の長さを1回言う",
+        "check": "Check if the user expressed a duration using 'for' plus a time period at least once, for example 'for three years'."
+      }
+    ],
+    "targetPhonemes": ["ER", "TH", "S", "AE"],
+    "estimatedMinutes": 9,
+    "freeTalkPrompt": "Continue as the HR interviewer, but move into relaxed follow-up questions: what the applicant enjoys about their current job, a memorable customer, or what kind of workplace they like. Ask one simple question at a time and show friendly interest in their answers."
+  },
+  {
+    "id": "b-interview-003",
+    "source": "bundled",
+    "title": "Strengths and Weaknesses",
+    "titleJa": "強みと弱みを伝える",
+    "category": "interview",
+    "level": 3,
+    "setting": "A second-round interview for an office position. The interviewer focuses on the candidate's personality: their biggest strength with a real example, and a weakness together with how they are improving it.",
+    "aiRole": "An experienced interviewer who asks natural follow-up questions about strengths and weaknesses",
+    "userRole": "A candidate explaining their strengths and weaknesses with examples",
+    "goal": "Explain your biggest strength with a concrete example, and describe a weakness together with how you are improving it.",
+    "goalJa": "強みを具体例つきで説明し、弱みは改善の工夫とセットで伝える",
+    "keyPhrases": [
+      {
+        "en": "My biggest strength is my flexibility.",
+        "ja": "私の一番の強みは柔軟性です。"
+      },
+      {
+        "en": "For example, in my last job...",
+        "ja": "例えば、前の仕事では…",
+        "note": "具体例の言い出しの定番"
+      },
+      {
+        "en": "One of my weaknesses is that I take on too much.",
+        "ja": "弱みの一つは、仕事を抱え込みすぎることです。"
+      },
+      {
+        "en": "I'm working on it by asking for help earlier.",
+        "ja": "早めに人に頼ることで改善に取り組んでいます。"
+      },
+      {
+        "en": "That experience taught me a lot.",
+        "ja": "その経験から多くのことを学びました。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "After a brief greeting, ask the candidate what their biggest strength is.",
+        "hintJa": "自分の強みを1つ、名詞で言い切ってみましょう（柔軟性、粘り強さ など）。",
+        "hintEn": "My biggest strength",
+        "modelAnswer": "My biggest strength is my flexibility. I can adjust quickly when plans change."
+      },
+      {
+        "aiIntent": "Ask for a concrete example of that strength in action.",
+        "hintJa": "強みが役立った場面を「For example」から話しましょう。",
+        "hintEn": "For example, in",
+        "modelAnswer": "For example, in my last job, our schedule changed suddenly, but I stayed calm and made a new plan that same day."
+      },
+      {
+        "aiIntent": "Now ask about their weakness. Be gentle but direct.",
+        "hintJa": "弱みは正直に、ただし言い方はやわらかく。「One of my weaknesses is...」",
+        "hintEn": "One of my",
+        "modelAnswer": "One of my weaknesses is that I take on too much work by myself."
+      },
+      {
+        "aiIntent": "Ask how they are dealing with that weakness.",
+        "hintJa": "改善のためにしている工夫を現在進行形で伝えましょう。",
+        "hintEn": "I'm working on",
+        "modelAnswer": "I'm working on it by asking for help earlier and sharing tasks with my team."
+      },
+      {
+        "aiIntent": "Ask how their colleagues would describe them, then wrap up the interview positively.",
+        "hintJa": "同僚から見た自分を「They would say...」で表現してみましょう。理由も添えると効果的です。",
+        "hintEn": "They would say",
+        "modelAnswer": "They would say I am friendly and reliable, because I always answer questions patiently."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "obj-example",
+        "descriptionJa": "「For example」などで具体例を1回以上話す",
+        "check": "Check if the user gave at least one concrete example introduced with 'for example' or a similar phrase such as 'for instance' or 'in my last job'."
+      },
+      {
+        "id": "obj-because",
+        "descriptionJa": "because を使って理由を1回説明する",
+        "check": "Check if the user explained a reason using 'because' at least once."
+      }
+    ],
+    "targetPhonemes": ["TH", "F", "L", "W"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Keep playing the interviewer, but shift to a more conversational tone. Explore how the candidate works with others: ask about a time they disagreed with a colleague, how they handle stress, or what kind of team they enjoy. Ask natural follow-up questions based on their answers."
+  },
+  {
+    "id": "b-interview-004",
+    "source": "bundled",
+    "title": "A Challenge You Overcame",
+    "titleJa": "困難を乗り越えた話（STAR面接）",
+    "category": "interview",
+    "level": 4,
+    "setting": "A behavioral interview for a team-lead position at a growing company. The interviewer uses the STAR method (Situation, Task, Action, Result) to dig into one real episode from the candidate's career, asking probing follow-up questions.",
+    "aiRole": "A sharp but fair hiring manager who asks probing follow-up questions",
+    "userRole": "A candidate describing a difficult project they overcame",
+    "goal": "Tell a convincing story about a challenge you overcame, covering the situation, your actions, and the result.",
+    "goalJa": "困難を乗り越えた経験を、状況・行動・結果の流れで説得力をもって語る",
+    "keyPhrases": [
+      {
+        "en": "Let me give you some background first.",
+        "ja": "まず背景から説明させてください。"
+      },
+      {
+        "en": "The biggest challenge was that we were behind schedule.",
+        "ja": "一番の課題は、予定より遅れていたことでした。"
+      },
+      {
+        "en": "I took the initiative to reorganize our tasks.",
+        "ja": "率先してタスクを整理し直しました。",
+        "note": "take the initiative = 率先して動く"
+      },
+      {
+        "en": "As a result, we delivered on time.",
+        "ja": "その結果、期限どおりに納品できました。"
+      },
+      {
+        "en": "Looking back, it taught me the value of clear priorities.",
+        "ja": "振り返ると、優先順位を明確にする大切さを学びました。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Open the behavioral interview: ask the candidate to describe a time they faced a serious challenge at work, starting with the situation.",
+        "hintJa": "背景（いつ・どんなプロジェクト・何が起きたか）から話し始めましょう。",
+        "hintEn": "Let me give",
+        "modelAnswer": "Let me give you some background first. Last year, my team was preparing a new service, but we lost a key member right before the deadline."
+      },
+      {
+        "aiIntent": "Probe their specific role: ask what exactly they were responsible for in that situation.",
+        "hintJa": "そのとき自分がどんな役割・責任を負っていたかを説明しましょう。",
+        "hintEn": "As the sub-leader,",
+        "modelAnswer": "As the sub-leader, I had to cover his tasks and keep the project on schedule at the same time."
+      },
+      {
+        "aiIntent": "Ask what concrete actions they took. If the answer is vague, politely push for specifics.",
+        "hintJa": "自分が取った行動を、動詞を並べて具体的に3つほど挙げてみましょう。",
+        "hintEn": "I took the",
+        "modelAnswer": "I took the initiative to reorganize our tasks, dropped two features that were not essential, and set up short daily check-ins."
+      },
+      {
+        "aiIntent": "Ask about the final result and what they learned from the experience.",
+        "hintJa": "結果を数字や具体的な成果で示し、学んだことを一言添えましょう。",
+        "hintEn": "As a result,",
+        "modelAnswer": "As a result, we delivered on time, and the feedback was very positive. Looking back, it taught me the value of clear priorities."
+      },
+      {
+        "aiIntent": "Push one level deeper: ask what they would do differently if they faced the same situation again.",
+        "hintJa": "仮定法（If I could ... , I would ...）で改善点を振り返ってみましょう。",
+        "hintEn": "If I could",
+        "modelAnswer": "If I could do it again, I would raise the risk earlier instead of trying to handle everything myself."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "obj-result",
+        "descriptionJa": "行動の結果を具体的な成果として1回述べる（期限達成・数字・評価など）",
+        "check": "Check if the user stated at least one concrete outcome of their actions, such as meeting a deadline, a number, or measurable positive feedback."
+      },
+      {
+        "id": "obj-linking",
+        "descriptionJa": "つなぎ表現（as a result / however / at the same time など）を2回以上使う",
+        "check": "Check if the user used at least two linking expressions such as 'as a result', 'however', 'at the same time', or 'instead of'."
+      }
+    ],
+    "targetPhonemes": ["R", "L", "V", "AE"],
+    "estimatedMinutes": 11,
+    "freeTalkPrompt": "Continue as the hiring manager in a more informal closing chat. Ask follow-up questions about the candidate's leadership style, how they would motivate a struggling teammate, and what kind of challenges they want next. Politely challenge vague answers and ask for concrete examples."
+  },
+  {
+    "id": "b-interview-005",
+    "source": "bundled",
+    "title": "Final Round: Your Questions and Conditions",
+    "titleJa": "最終面接：逆質問と条件のすり合わせ",
+    "category": "interview",
+    "level": 5,
+    "setting": "The final round of interviews for a senior position. A director has finished their own questions and now expects the candidate to lead: asking incisive questions about the role and team, and discussing conditions with nuance and diplomacy.",
+    "aiRole": "A senior director who values incisive questions and answers candidly",
+    "userRole": "A finalist candidate steering the conversation with questions and negotiation",
+    "goal": "Ask insightful questions about the role and team, and discuss conditions diplomatically without committing too early.",
+    "goalJa": "役割やチームについて鋭い逆質問をし、条件面は含みを残しつつ丁寧にすり合わせる",
+    "keyPhrases": [
+      {
+        "en": "What would success look like in the first six months?",
+        "ja": "最初の半年間で、何ができれば成功と言えますか？",
+        "note": "逆質問の定番。What would ... look like? は具体像を引き出す形"
+      },
+      {
+        "en": "I'd like to get a sense of the team's current priorities.",
+        "ja": "チームの現在の優先事項を伺いたいです。"
+      },
+      {
+        "en": "I'm flexible on the details, provided the overall package is competitive.",
+        "ja": "全体の条件が妥当であれば、細部については柔軟に考えます。",
+        "note": "provided = 〜という条件であれば"
+      },
+      {
+        "en": "If I understand correctly, the role would involve...",
+        "ja": "私の理解が正しければ、この役割は…ということですね。"
+      },
+      {
+        "en": "That aligns well with what I'm looking for.",
+        "ja": "それは私が求めているものと合致しています。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "As the director, wrap up your own questions and invite the candidate to ask you anything: 'What questions do you have for us?'",
+        "hintJa": "成果の定義を尋ねる逆質問から始めましょう。「最初の半年で何が成功か」は好印象です。",
+        "hintEn": "What would success",
+        "modelAnswer": "Thank you. First, what would success look like in this role in the first six months?"
+      },
+      {
+        "aiIntent": "Answer the question candidly with concrete expectations, then invite another question.",
+        "hintJa": "回答を受けて、チームの優先事項や自分が最速で貢献できる領域を掘り下げましょう。",
+        "hintEn": "I'd like to",
+        "modelAnswer": "That's very helpful. I'd also like to get a sense of the team's current priorities, and where I could add value fastest."
+      },
+      {
+        "aiIntent": "Shift the topic to conditions: ask about the candidate's salary expectations directly but politely.",
+        "hintJa": "希望条件は幅を持たせ、「provided（〜であれば）」で柔軟さも示しましょう。",
+        "hintEn": "Based on my",
+        "modelAnswer": "Based on my experience, I'm looking at the market rate for this level, but I'm flexible on the details, provided the overall package is competitive."
+      },
+      {
+        "aiIntent": "Test the candidate's honesty: ask what concerns, if any, they still have about joining the company.",
+        "hintJa": "懸念は正直に、ただし前向きな観察とセットで伝えましょう。",
+        "hintEn": "My only concern",
+        "modelAnswer": "Honestly, my only concern would be the pace of decision-making, though everything you described today suggests the team moves quickly."
+      },
+      {
+        "aiIntent": "Close the interview: ask for the candidate's final thoughts on the role and the conversation.",
+        "hintJa": "総括として、役割と自分の希望が合っていることを言い切って締めましょう。",
+        "hintEn": "From what I've",
+        "modelAnswer": "From what I've heard today, the role aligns well with what I'm looking for, and I'm confident I could make an impact early on."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "obj-hedging",
+        "descriptionJa": "婉曲・条件つき表現（would / provided / though など）を2回以上使う",
+        "check": "Check if the user used hedging or conditional expressions such as 'would', 'provided (that)', 'though', or 'I was wondering' at least twice."
+      },
+      {
+        "id": "obj-questions",
+        "descriptionJa": "内容のある逆質問を2回以上する",
+        "check": "Check if the user asked the interviewer at least two substantive questions about the role, the team, or the company's strategy."
+      }
+    ],
+    "targetPhonemes": ["S", "R", "L", "IH"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Stay in character as the senior director after the formal close. Talk with the candidate as a future peer: discuss industry trends, the company's direction, and trade views candidly. Use natural idiomatic English, push back gently on weak arguments, and expect nuanced, well-structured replies."
+  }
+]

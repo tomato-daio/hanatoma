@@ -1,0 +1,407 @@
+[
+  {
+    "id": "b-restaurant-001",
+    "source": "bundled",
+    "title": "Ordering at a Cafe",
+    "titleJa": "カフェで注文する",
+    "category": "restaurant",
+    "level": 1,
+    "setting": "A small, friendly cafe on a weekday morning. The customer is standing at the counter, looking at a simple menu board with drinks and snacks.",
+    "aiRole": "A friendly cafe staff member taking orders at the counter",
+    "userRole": "A customer ordering a drink and a snack",
+    "goal": "Order a drink and a snack, say if it is for here or to go, and pay.",
+    "goalJa": "飲み物と軽食を注文し、店内か持ち帰りかを伝えて支払いを済ませる",
+    "keyPhrases": [
+      {
+        "en": "Can I have a coffee, please?",
+        "ja": "コーヒーをひとつください。",
+        "note": "注文の一番シンプルな定番フレーズ"
+      },
+      {
+        "en": "For here, please.",
+        "ja": "店内でお願いします。",
+        "note": "持ち帰りなら To go, please."
+      },
+      {
+        "en": "How much is it?",
+        "ja": "いくらですか？"
+      },
+      {
+        "en": "That's all, thank you.",
+        "ja": "以上です、ありがとう。"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the customer warmly and ask what they would like to order.",
+        "hintJa": "飲み物をひとつ注文してみましょう。「〜をください」の形で言えばOKです。",
+        "hintEn": "Can I have...",
+        "modelAnswer": "Can I have a coffee, please?"
+      },
+      {
+        "aiIntent": "Say one coffee, then ask if the customer would like anything else, such as a muffin or a cookie.",
+        "hintJa": "軽食をひとつ追加で頼んでみましょう。いらなければ「以上です」でも大丈夫です。",
+        "hintEn": "Can I also have...",
+        "modelAnswer": "Can I also have a muffin, please?"
+      },
+      {
+        "aiIntent": "Ask whether the order is for here or to go.",
+        "hintJa": "店内で食べるか、持ち帰るかを答えましょう。",
+        "hintEn": "For here...",
+        "modelAnswer": "For here, please."
+      },
+      {
+        "aiIntent": "Tell the customer the total is seven dollars, take the payment, and thank them.",
+        "hintJa": "お金を渡すときのひとこと「どうぞ」と、お礼を言いましょう。",
+        "hintEn": "Here you are...",
+        "modelAnswer": "Here you are. Thank you."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "please-twice",
+        "descriptionJa": "「please」を2回以上使う",
+        "check": "Check if the user said 'please' at least twice across their turns."
+      },
+      {
+        "id": "ask-price",
+        "descriptionJa": "値段を自分から質問する",
+        "check": "Check if the user asked about the price, for example 'How much is it?'"
+      }
+    ],
+    "targetPhonemes": ["F", "L", "IY", "DH"],
+    "estimatedMinutes": 8,
+    "freeTalkPrompt": "Continue as the friendly cafe staff member. The customer has paid and is waiting for their drink. Make light small talk in very simple English with short sentences: ask about their morning, whether they like coffee or tea, and if they come to this cafe often. Ask one easy question at a time."
+  },
+  {
+    "id": "b-restaurant-002",
+    "source": "bundled",
+    "title": "Dinner at a Casual Restaurant",
+    "titleJa": "カジュアルレストランで夕食を注文する",
+    "category": "restaurant",
+    "level": 2,
+    "setting": "A casual family restaurant in the evening. The customer is seated at a table and the server comes over to take the order.",
+    "aiRole": "A cheerful server at a casual family restaurant",
+    "userRole": "A customer having dinner alone after work",
+    "goal": "Ask for a recommendation, order a main dish and a drink, comment on the food, and ask for the check.",
+    "goalJa": "おすすめを聞き、メインと飲み物を注文し、感想を伝えて会計をお願いする",
+    "keyPhrases": [
+      {
+        "en": "What do you recommend?",
+        "ja": "おすすめは何ですか？"
+      },
+      {
+        "en": "I'll have the grilled chicken.",
+        "ja": "グリルチキンにします。",
+        "note": "注文は I'll have... が定番"
+      },
+      {
+        "en": "Could I get a glass of orange juice?",
+        "ja": "オレンジジュースをひとついただけますか？",
+        "note": "Could I get...? は丁寧なお願い"
+      },
+      {
+        "en": "Could we have the check, please?",
+        "ja": "お会計をお願いできますか？"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Welcome the customer, mention the menu, and ask if they are ready to order.",
+        "hintJa": "まだ決めていない体で、お店のおすすめを聞いてみましょう。",
+        "hintEn": "What do you...",
+        "modelAnswer": "I'm not sure yet. What do you recommend?"
+      },
+      {
+        "aiIntent": "Recommend the grilled chicken with vegetables, saying it is the most popular dish tonight.",
+        "hintJa": "おすすめされた料理を「I'll have...」で注文しましょう。",
+        "hintEn": "I'll have...",
+        "modelAnswer": "That sounds good. I'll have the grilled chicken."
+      },
+      {
+        "aiIntent": "Confirm the order and ask what the customer would like to drink.",
+        "hintJa": "飲み物をひとつ、丁寧な言い方で頼んでみましょう。",
+        "hintEn": "Could I get...",
+        "modelAnswer": "Could I get a glass of orange juice, please?"
+      },
+      {
+        "aiIntent": "Come back near the end of the meal and ask how everything was.",
+        "hintJa": "料理の感想を過去形でひとこと伝えましょう。",
+        "hintEn": "It was...",
+        "modelAnswer": "It was delicious. I really liked the chicken."
+      },
+      {
+        "aiIntent": "Say you are glad to hear that and ask if the customer needs anything else.",
+        "hintJa": "何もいらないことを伝えて、会計をお願いしましょう。",
+        "hintEn": "Could we have...",
+        "modelAnswer": "No, thank you. Could we have the check, please?"
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "polite-request",
+        "descriptionJa": "「Could I / Could we」で丁寧に頼む（1回以上）",
+        "check": "Check if the user made at least one polite request starting with 'Could I' or 'Could we'."
+      },
+      {
+        "id": "past-tense-comment",
+        "descriptionJa": "料理の感想を過去形で言う",
+        "check": "Check if the user commented on the food using the past tense, for example 'It was delicious.'"
+      }
+    ],
+    "targetPhonemes": ["R", "L", "IH", "W"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the cheerful server. The customer is finishing their meal. Chat naturally in simple English: ask if they enjoyed everything, offer dessert, and make friendly small talk about the kinds of food they like and how often they eat out. Keep sentences short and ask one question at a time."
+  },
+  {
+    "id": "b-restaurant-003",
+    "source": "bundled",
+    "title": "Booking a Table by Phone",
+    "titleJa": "電話でレストランを予約する",
+    "category": "restaurant",
+    "level": 3,
+    "setting": "A phone call to a popular Italian restaurant. The caller wants to book a table for Friday evening for a friend's birthday dinner. The restaurant is busy, so the first choice of time may not be available.",
+    "aiRole": "A restaurant host answering the phone and managing reservations",
+    "userRole": "A customer calling to reserve a table for a birthday dinner with friends",
+    "goal": "Reserve a table for four on Friday evening, handle a time change, request a window table, and mention the birthday.",
+    "goalJa": "金曜夜に4名で予約し、時間変更に対応し、窓際の席と誕生日であることを伝える",
+    "keyPhrases": [
+      {
+        "en": "I'd like to make a reservation for four.",
+        "ja": "4名で予約をしたいのですが。"
+      },
+      {
+        "en": "Do you have anything available around seven?",
+        "ja": "19時ごろに空きはありますか？"
+      },
+      {
+        "en": "Could we have a table by the window?",
+        "ja": "窓際の席をお願いできますか？"
+      },
+      {
+        "en": "It's actually my friend's birthday.",
+        "ja": "実は友人の誕生日なんです。",
+        "note": "actually で「実は」のニュアンス"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Answer the phone with a warm greeting as the restaurant host and ask how you can help.",
+        "hintJa": "予約したいこと・人数・曜日をまとめて伝えましょう。",
+        "hintEn": "I'd like to make...",
+        "modelAnswer": "Hi, I'd like to make a reservation for four people this Friday evening."
+      },
+      {
+        "aiIntent": "Say Friday at seven is fully booked, but seven thirty is available. Ask if that works.",
+        "hintJa": "19時半で問題ないと答えて、その時間でお願いしましょう。",
+        "hintEn": "Seven thirty works...",
+        "modelAnswer": "Seven thirty works for us. Could we book that, please?"
+      },
+      {
+        "aiIntent": "Confirm the time and ask for a name for the reservation.",
+        "hintJa": "予約名を伝えたうえで、窓際の席が取れるか聞いてみましょう。",
+        "hintEn": "The name is...",
+        "modelAnswer": "The name is Ken. Also, could we have a table by the window?"
+      },
+      {
+        "aiIntent": "Say you will note the window request, then ask if it is a special occasion.",
+        "hintJa": "誕生日だと伝えて、何か特別なことができるか聞いてみましょう。",
+        "hintEn": "It's actually...",
+        "modelAnswer": "It's actually my friend's birthday. Could you do something special, like a dessert plate?"
+      },
+      {
+        "aiIntent": "Offer a complimentary birthday dessert, then confirm all the reservation details and close the call politely.",
+        "hintJa": "人数・曜日・時間を復唱して確認し、お礼を言って電話を切りましょう。",
+        "hintEn": "Perfect, so that's...",
+        "modelAnswer": "Perfect, so that's four people this Friday at seven thirty. Thank you so much for your help."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "confirm-details",
+        "descriptionJa": "予約内容（人数・曜日・時間のうち2つ以上）を復唱して確認する",
+        "check": "Check if the user repeated back at least two reservation details (party size, day, or time) to confirm them."
+      },
+      {
+        "id": "two-questions",
+        "descriptionJa": "こちらから質問を2回以上する",
+        "check": "Check if the user asked the host at least two questions during the call."
+      }
+    ],
+    "targetPhonemes": ["R", "ER", "TH", "W"],
+    "estimatedMinutes": 10,
+    "freeTalkPrompt": "Continue as the friendly restaurant host. The reservation is confirmed, but the caller stays on the line with a few more questions. Chat naturally: describe the seasonal menu, ask whether anyone in the group has dietary preferences, and answer questions about parking, directions, or the dress code."
+  },
+  {
+    "id": "b-restaurant-004",
+    "source": "bundled",
+    "title": "Dining Out with a Food Allergy",
+    "titleJa": "食物アレルギーを伝えて安全に注文する",
+    "category": "restaurant",
+    "level": 4,
+    "setting": "A mid-range bistro at dinner time. The customer has a serious peanut allergy and needs to check ingredients and kitchen practices carefully before ordering. The server is helpful but has to confirm some details with the kitchen.",
+    "aiRole": "An attentive server who knows the menu well but needs to double-check some details with the kitchen",
+    "userRole": "A customer with a severe peanut allergy ordering dinner",
+    "goal": "Explain the allergy clearly, ask about ingredients and cross-contamination, and order a safe meal with confidence.",
+    "goalJa": "アレルギーを明確に伝え、原材料と調理中の混入リスクを確認して、安心して注文する",
+    "keyPhrases": [
+      {
+        "en": "I have a severe peanut allergy.",
+        "ja": "重度のピーナッツアレルギーがあります。",
+        "note": "severe で深刻さが伝わる"
+      },
+      {
+        "en": "Does this contain any nuts or nut oil?",
+        "ja": "これにナッツやナッツオイルは入っていますか？"
+      },
+      {
+        "en": "Could you check with the kitchen for me?",
+        "ja": "厨房に確認していただけますか？"
+      },
+      {
+        "en": "Is there any risk of cross-contamination?",
+        "ja": "調理中に混入する可能性はありますか？",
+        "note": "cross-contamination = 調理器具などを通じた混入"
+      },
+      {
+        "en": "Just to be on the safe side.",
+        "ja": "念のためですが。",
+        "note": "確認をやわらかく切り出す表現"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "Greet the customer and ask if they are ready to order.",
+        "hintJa": "注文の前に、重度のアレルギーがあることをはっきり伝えましょう。",
+        "hintEn": "Before I order...",
+        "modelAnswer": "Before I order, I should mention that I have a severe peanut allergy."
+      },
+      {
+        "aiIntent": "Thank them for letting you know, ask how serious it is, and offer to help them find safe dishes.",
+        "hintJa": "深刻さを説明し、気になっている料理（アジア風ヌードル）にナッツが入っていないか尋ねましょう。",
+        "hintEn": "It's quite serious...",
+        "modelAnswer": "It's quite serious, so I have to be careful. Does the Asian-style noodle dish contain any nuts or nut oil?"
+      },
+      {
+        "aiIntent": "Say the noodles are topped with crushed peanuts, but the grilled salmon should be safe. Offer to double-check with the kitchen.",
+        "hintJa": "確認をお願いしつつ、調理器具の共有など混入リスクについても質問しましょう。",
+        "hintEn": "That would be great...",
+        "modelAnswer": "That would be great, thank you. Also, is there any risk of cross-contamination in the kitchen?"
+      },
+      {
+        "aiIntent": "Come back from the kitchen and confirm the salmon is prepared in a separate area with clean utensils. Ask if they would like to order it.",
+        "hintJa": "安心したことを伝えてサーモンを注文し、念のため付け合わせの内容も確認しましょう。",
+        "hintEn": "That's a relief...",
+        "modelAnswer": "That's a relief. I'll have the grilled salmon, then. Just to be on the safe side, what does it come with?"
+      },
+      {
+        "aiIntent": "Describe the sides as roasted vegetables and rice, confirm they are nut-free, and take the order.",
+        "hintJa": "注文を確定して、丁寧に対応してくれたことへのお礼を伝えましょう。",
+        "hintEn": "Perfect, I'll go with...",
+        "modelAnswer": "Perfect, I'll go with that. Thanks so much for checking everything for me."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "explain-severity",
+        "descriptionJa": "アレルギーの深刻さを理由や具体性を添えて説明する",
+        "check": "Check if the user explained how serious their allergy is, not just that they have one."
+      },
+      {
+        "id": "two-safety-questions",
+        "descriptionJa": "注文確定前に安全確認の質問を2回以上する",
+        "check": "Check if the user asked at least two safety-related questions (about ingredients, oil, or cross-contamination) before finalizing their order."
+      }
+    ],
+    "targetPhonemes": ["L", "AE", "V", "S"],
+    "estimatedMinutes": 11,
+    "freeTalkPrompt": "Continue as the attentive server. The order is placed and the customer feels reassured. Chat naturally about dining with allergies: ask whether they have had difficult experiences at other restaurants, discuss how they usually phrase allergy requests when traveling abroad, and mention that the restaurant keeps an allergen list for every dish."
+  },
+  {
+    "id": "b-restaurant-005",
+    "source": "bundled",
+    "title": "Resolving a Problem with Your Meal",
+    "titleJa": "料理の不手際をスマートに解決する",
+    "category": "restaurant",
+    "level": 5,
+    "setting": "An upscale restaurant during an important business dinner. After a forty-minute wait, the customer's steak arrived barely warm and a guest received the wrong dish. The customer wants this fixed without spoiling the evening's atmosphere.",
+    "aiRole": "A professional but initially defensive restaurant manager handling a complaint at the table",
+    "userRole": "The host of a business dinner raising a complaint diplomatically",
+    "goal": "Raise the issues tactfully, push back on an inadequate offer, and negotiate a fair resolution while keeping the tone positive.",
+    "goalJa": "角を立てずに問題を伝え、不十分な提案には粘り強く交渉し、妥当な埋め合わせを引き出して場の雰囲気を保つ",
+    "keyPhrases": [
+      {
+        "en": "I hate to make a fuss, but...",
+        "ja": "大ごとにはしたくないのですが…",
+        "note": "苦情の切り出しを和らげる定番"
+      },
+      {
+        "en": "This isn't quite what we ordered.",
+        "ja": "注文した内容と少し違うようです。",
+        "note": "控えめに指摘する言い回し"
+      },
+      {
+        "en": "I'd appreciate it if you could sort this out.",
+        "ja": "対応していただけるとありがたいです。",
+        "note": "sort out = 問題を解決する"
+      },
+      {
+        "en": "Given the wait, I think some gesture would be appropriate.",
+        "ja": "これだけ待ったので、何らかの配慮があってもよいかと思います。",
+        "note": "gesture = 誠意を示す対応"
+      },
+      {
+        "en": "We'd like to leave on a good note.",
+        "ja": "気持ちよく締めくくりたいので。",
+        "note": "on a good note = 良い形で"
+      }
+    ],
+    "steps": [
+      {
+        "aiIntent": "As the manager, approach the table, sensing something is wrong, and politely ask if everything is all right.",
+        "hintJa": "強い言葉を避けつつ、待ち時間・冷めたステーキ・注文違いの3点を整理して伝えましょう。",
+        "hintEn": "I hate to make...",
+        "modelAnswer": "I hate to make a fuss, but we waited about forty minutes, my steak arrived cold, and this risotto isn't quite what we ordered."
+      },
+      {
+        "aiIntent": "Apologize briefly but be slightly defensive: explain the kitchen is short-staffed tonight and offer only to reheat the steak.",
+        "hintJa": "温め直しでは不十分な理由を丁寧に述べ、新しく作り直すよう求めましょう。",
+        "hintEn": "I appreciate that, but...",
+        "modelAnswer": "I appreciate that, but reheating a steak really isn't the same. I'd rather you cooked a fresh one, if at all possible."
+      },
+      {
+        "aiIntent": "Agree to remake the steak and fix the wrong dish, then ask if there is anything else you can do.",
+        "hintJa": "大事な会食であることに触れ、待ち時間への配慮（デザートやドリンクのサービスなど）をやんわり求めましょう。",
+        "hintEn": "There is one thing...",
+        "modelAnswer": "There is one thing. This is an important business dinner, and given the wait, I think some gesture for the table would be appropriate."
+      },
+      {
+        "aiIntent": "Offer to take the desserts off the bill and bring complimentary coffee, and ask if that would be acceptable.",
+        "hintJa": "提案を受け入れて感謝を伝えつつ、常連として前向きなひとことを添えましょう。",
+        "hintEn": "That would go a long way...",
+        "modelAnswer": "That would go a long way, thank you. We've always enjoyed this place, and we'd like to leave on a good note."
+      },
+      {
+        "aiIntent": "Thank the customer sincerely for their patience, confirm the resolution, and promise the fresh dishes will arrive shortly.",
+        "hintJa": "最後に、対応してくれたこと自体への評価をひとこと伝えて締めくくりましょう。",
+        "hintEn": "Thank you, I appreciate...",
+        "modelAnswer": "Thank you, I appreciate how you've handled this. It makes a real difference to the evening."
+      }
+    ],
+    "hiddenObjectives": [
+      {
+        "id": "soften-complaint",
+        "descriptionJa": "苦情を和らげる前置き表現を2回以上使う",
+        "check": "Check if the user used softening phrases (such as 'I hate to make a fuss', 'I appreciate that, but', or 'I'm afraid') at least twice when raising or pushing the complaint."
+      },
+      {
+        "id": "propose-remedy",
+        "descriptionJa": "自分から具体的な解決策・埋め合わせを提案する",
+        "check": "Check if the user proposed a concrete remedy themselves (such as a freshly cooked dish or complimentary items) rather than only describing the problem."
+      }
+    ],
+    "targetPhonemes": ["R", "F", "AH", "ER"],
+    "estimatedMinutes": 12,
+    "freeTalkPrompt": "Continue as the manager, now warm and accommodating after resolving the complaint. Engage in a nuanced conversation: ask the guest for candid feedback on tonight's service, discuss how the restaurant usually handles service failures, and explore what would win back their confidence for future business dinners. Use natural, sophisticated English with idiomatic expressions."
+  }
+]
