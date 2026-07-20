@@ -170,6 +170,7 @@ interface UsageDay {
 //       dailyCaps({sessions,sonnetCalls,paMinutes}) / onboardingDone /
 //       reviewStats(ReviewStats) / reviewDates(string[])  ← サイレント復習(§4b)。appStateは
 //       スキーマレスなためDBバージョンは1のまま。バックアップにも自動的に含まれる
+//       paProsodyFallback({region,date}) ← 韻律非対応リージョンの当日キャッシュ(§6a)
 
 // サイレント復習のSRS状態（appState 'reviewStats'。types.tsに型あり）
 interface ReviewCardStat {
@@ -192,8 +193,9 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 
 会話画面はフェーズウィザード。モードは3種:
 - `mode:'lesson'`（フルレッスン・約10分）: 全5フェーズ
-- `mode:'quick'`（クイック会話・約5分）: フェーズ3〜5のみ
+- `mode:'quick'`（クイック会話・約5分）: フェーズ3〜5のみ（**予習なし・添削あり**。題材はレッスンと同じおすすめシナリオ）
 - `mode:'bite'`（**ひとくち英会話**・1〜2分）: AIの一言に1回だけ音声で応答→ミニ講評1文（Haiku。Sonnet添削なし）。**忙しい日でもストリークが継続する最小単位**。ホームに常設ボタン
+- ホームの各モードカードには「予習の有無 / 添削の有無 / 所要時間」の差を明記する（ユーザーがモードの違いを認知できる3軸）
 
 1. **イントロ**: シナリオカード（場面・相手役・ゴール・日本語説明・所要目安）
 2. **キーフレーズ予習**: 3〜5個を順に「TTSで聞く → 自分で発音 → scripted PA採点（音素表示）」。80点以上で✓。スキップ可
@@ -235,6 +237,7 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - 目標レイテンシ（ユーザー発話終了→AI音声開始）: 合計 ≤3.2秒。区間別目安: WAV変換≤0.3s / PA≤1.2s / Haiku初文≤1.2s / TTS初回≤0.5s。M3でコンソールに区間ログを出す
 - テキスト入力切替: キーボードアイコンで入力欄表示。PAはスキップ（`pa`なし・`inputMode:'text'`）
 - 録音中: 経過秒・レベルメーター（AnalyserNode）・Wake Lock取得。マイクトラックended/mute検知時は「マイクがOSに停止されました。もう一度録音開始を押してください」
+- 評価中: 小スピナー+経過秒表示（`AssessingIndicator.tsx`。「発音を評価中… n秒」。経過秒はDate.now()差分から導出しStrictMode二重実行に耐える）
 - AI音声再生とマイクの iOS オーディオセッション往復が壊れる場合は、shadotoma M7 の対策（統一AudioContext・手動▶ボタン）を展開する（M2/M3実機確認項目）
 
 ## 6. Azure Speech 連携
@@ -245,9 +248,10 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - `PronunciationAssessmentConfig`: referenceText=**空文字**、GradingSystem=HundredMark、Granularity=Phoneme、EnableProsodyAssessment。`speechRecognitionLanguage='en-US'`
 - 音声は WAV(16kHz mono PCM16) を pushStream で投入。60秒超対応のため continuous recognition で最後まで処理し、複数結果は**音声長加重でスコア統合**（shadotoma `azurePronunciation.ts` のロジック流用）。認識テキストは連結
 - **プロソディ・フォールバック**: 韻律有効で失敗したら韻律なしで1回だけ自動リトライ（japaneastで失敗実績あり）。両方失敗時のみエラー（`azureError` に errorDetails 先頭120字）
+- **韻律非対応の当日キャッシュ**（レイテンシ対策）: フォールバック成功時に appState `paProsodyFallback` = `{region, date(学習日)}` を記録し、**同日・同リージョンなら最初から韻律なし1回で実行**（毎ターン2回認識になるのを防ぐ）。学習日が変わると自動で再プローブ（Azureが韻律対応した際の自己回復。1日の最初のターンだけ2回になりうる）。1回目の失敗がネットワーク/認証/タイムアウト系のときは書かない（一時障害の誤学習防止）。韻律あり成功時はキャッシュ削除。キャッシュ読み書き（azureSpeechConfig.tsのget/set/clearヘルパー）は決してthrowせず評価の成否に影響させない
 - 音素スコアを集計し `weakPhonemes`（低スコア音素トップ3: 記号・平均点・例語最大2）を保存
 - PAエラー時も会話は継続する（認識テキストが取れなければ「聞き取れませんでした。もう一度どうぞ」表示。Haikuは呼ばない）
-- **フレーズヒント**（認識精度向上）: `assessSpeech` は `phraseHints?: string[]` を受け取り、`PhraseListGrammar.fromRecognizer(recognizer).addPhrases()` で認識エンジンに渡す。会話ターンではシナリオのキーフレーズ英文+全stepsのmodelAnswerを `buildPhraseHints`（`src/features/conversation/phraseHints.ts`・純関数・Vitest必須）で組み立てて渡す（なまりのある発話でもシナリオ文脈に沿った聞き取りになる。スコアの水増しではなく認識の文脈補助）。ヒントは重複除去（大文字小文字無視）・空除去のうえ最大40件
+- **フレーズヒント**（認識精度向上）: `assessSpeech` は `phraseHints?: string[]` を受け取り、`PhraseListGrammar.fromRecognizer(recognizer).addPhrases()` で認識エンジンに渡す。会話ターンでは `buildPhraseHints(scenario, ctx: {phase, stepIndex})`（`src/features/conversation/phraseHints.ts`・純関数・Vitest必須）で**文脈に絞って**組み立てる: ガイド中=キーフレーズ英文+現在stepのmodelAnswerのみ、それ以外（フリー会話等）=キーフレーズ英文のみ。⚠️全stepsの模範解答（長文8〜10件）を一括で渡すと認識がヒント文へ引っ張られる over-biasing の実害があったため、範囲を広げないこと。ヒントは重複除去（大文字小文字無視）・空除去のうえ最大40件
 
 ### 6b. scripted 発音評価（キーフレーズ予習用）
 - referenceText=キーフレーズ文。enableMiscue=true。他は6aと同じ。completenessScoreあり

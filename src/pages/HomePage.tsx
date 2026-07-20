@@ -100,7 +100,10 @@ export function HomePage() {
           <>
             <h2 className="mt-1 text-lg font-bold text-neutral-800">{todayScenario.titleJa}</h2>
             <p className="mt-0.5 text-sm text-neutral-600">{todayScenario.goalJa}</p>
-            <p className="mt-1 text-xs text-neutral-400">
+            <p className="mt-1 text-xs font-semibold text-hana-700">
+              キーフレーズ予習 → 会話 → AI添削レポート
+            </p>
+            <p className="mt-0.5 text-xs text-neutral-400">
               レベル{todayScenario.level} ・ 約{todayScenario.estimatedMinutes}分
             </p>
             <button
@@ -126,7 +129,7 @@ export function HomePage() {
           className="flex-1 rounded-xl border border-neutral-200 bg-white p-3 text-left disabled:opacity-50"
         >
           <p className="text-sm font-semibold text-neutral-700">⚡ クイック会話</p>
-          <p className="text-xs text-neutral-400">約5分・会話だけ</p>
+          <p className="text-xs text-neutral-400">予習なしでいきなり会話・添削あり（約5分）</p>
         </button>
         <button
           type="button"
@@ -135,7 +138,7 @@ export function HomePage() {
           className="flex-1 rounded-xl border border-neutral-200 bg-white p-3 text-left disabled:opacity-50"
         >
           <p className="text-sm font-semibold text-neutral-700">🍅 ひとくち英会話</p>
-          <p className="text-xs text-neutral-400">1〜2分・1往復だけ</p>
+          <p className="text-xs text-neutral-400">1往復だけ・添削なし・ストリーク維持（1〜2分）</p>
         </button>
       </section>
 

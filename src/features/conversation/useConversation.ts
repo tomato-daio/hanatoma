@@ -397,10 +397,13 @@ export function useConversation(conversationId: string | undefined): UseConversa
         const tWav = performance.now();
 
         // 発音評価（unscripted）。Azure失敗時は例外ではなくpa.azureErrorで返る契約。
-        // フレーズヒント（§6a）: シナリオのキーフレーズ・模範解答を認識の文脈補助として渡す
+        // フレーズヒント（§6a）: キーフレーズ+（ガイド中のみ）現在stepの模範解答だけを渡す
+        // （全stepsの長文を渡すと認識がヒントへ引っ張られるover-biasingの実害があった）
         const result = await assessSpeech(wavBlob, {
           mode: 'unscripted',
-          phraseHints: scenario ? buildPhraseHints(scenario) : [],
+          phraseHints: scenario
+            ? buildPhraseHints(scenario, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
+            : [],
         });
         const tPa = performance.now();
         await addUsage(today, { paSeconds: Math.round(pcm.length / WHISPER_SAMPLE_RATE) });

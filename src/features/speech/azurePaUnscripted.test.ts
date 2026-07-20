@@ -11,6 +11,7 @@ import {
   makeFailurePaResult,
   normalizePhonemeKey,
   resolveRecognitionOutcome,
+  shouldSkipProsody,
   toPhraseAssessment,
   truncateDetail,
   type AzureDetailResultLike,
@@ -475,5 +476,32 @@ describe('truncateDetail', () => {
   it('ちょうどmaxLengthの長さなら…を付けない', () => {
     const detail = 'a'.repeat(120);
     expect(truncateDetail(detail)).toBe(detail);
+  });
+});
+
+describe('shouldSkipProsody', () => {
+  const REGION = 'japaneast';
+  const TODAY = '2026-07-20';
+
+  it('regionとdateが両方一致すればtrue（韻律なしで直行してよい）', () => {
+    expect(shouldSkipProsody({ region: REGION, date: TODAY }, REGION, TODAY)).toBe(true);
+  });
+
+  it('dateが違えばfalse（日替わりで再プローブする）', () => {
+    expect(shouldSkipProsody({ region: REGION, date: '2026-07-19' }, REGION, TODAY)).toBe(false);
+  });
+
+  it('regionが違えばfalse（リージョン変更で自然に再プローブする）', () => {
+    expect(shouldSkipProsody({ region: 'eastus', date: TODAY }, REGION, TODAY)).toBe(false);
+  });
+
+  it('undefined・null・文字列・数値・フィールド欠落オブジェクトはfalse（appState破損耐性）', () => {
+    expect(shouldSkipProsody(undefined, REGION, TODAY)).toBe(false);
+    expect(shouldSkipProsody(null, REGION, TODAY)).toBe(false);
+    expect(shouldSkipProsody('japaneast', REGION, TODAY)).toBe(false);
+    expect(shouldSkipProsody(42, REGION, TODAY)).toBe(false);
+    expect(shouldSkipProsody({}, REGION, TODAY)).toBe(false);
+    expect(shouldSkipProsody({ region: REGION }, REGION, TODAY)).toBe(false);
+    expect(shouldSkipProsody({ date: TODAY }, REGION, TODAY)).toBe(false);
   });
 });

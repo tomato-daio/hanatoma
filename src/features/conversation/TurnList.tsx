@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { Turn } from '../../lib/types';
+import { AssessingIndicator } from './AssessingIndicator';
 import type { ConversationBusy } from './useConversation';
 
 interface Props {
@@ -61,7 +62,7 @@ export function TurnList({ turns, aiDraft, busy }: Props) {
         </div>
       )}
 
-      {busy === 'assessing' && <p className="text-center text-xs text-neutral-400">発音を評価中…</p>}
+      {busy === 'assessing' && <AssessingIndicator className="justify-center" />}
       {busy === 'thinking' && !aiDraft && <p className="text-center text-xs text-neutral-400">AIが考えています…</p>}
 
       <div ref={bottomRef} />

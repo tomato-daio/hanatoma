@@ -10,11 +10,13 @@
  * キー名を変更する場合は両ファイルを同時に更新すること。
  */
 
-import { deleteAppState, getAppState, setAppState } from '../../lib/db';
+import { deleteAppState, getAppState, setAppState, type PaProsodyFallbackState } from '../../lib/db';
 
 /** appStateの保存キー（値の文字列は backup.ts の除外処理と一致させること）。 */
 export const AZURE_SPEECH_KEY_APP_STATE_KEY = 'azureSpeechKey';
 export const AZURE_SPEECH_REGION_APP_STATE_KEY = 'azureSpeechRegion';
+/** 韻律非対応リージョンの当日キャッシュ（DESIGN.md §6a。値は {region, date}）。 */
+export const PA_PROSODY_FALLBACK_APP_STATE_KEY = 'paProsodyFallback';
 
 export interface AzureRegionOption {
   value: string;
@@ -54,6 +56,38 @@ export async function setAzureSpeechCredentials(apiKey: string, region: string):
 export async function clearAzureSpeechCredentials(): Promise<void> {
   await deleteAppState(AZURE_SPEECH_KEY_APP_STATE_KEY);
   await deleteAppState(AZURE_SPEECH_REGION_APP_STATE_KEY);
+}
+
+// ---- 韻律非対応の当日キャッシュ（DESIGN.md §6a） ----
+// 3ヘルパーとも決してthrowしない契約: キャッシュはレイテンシ最適化にすぎず、
+// 読み書きの失敗が発音評価の成否（assessSpeechの「throwしない」契約）に影響してはならない。
+
+/** キャッシュを読む。DB失敗・値破損でもundefinedを返す（判定はshouldSkipProsodyが行う）。 */
+export async function getPaProsodyFallback(): Promise<unknown> {
+  try {
+    return await getAppState(PA_PROSODY_FALLBACK_APP_STATE_KEY);
+  } catch (err) {
+    console.warn('[azureSpeechConfig] paProsodyFallbackの読み取りに失敗しました（無視して続行）。', err);
+    return undefined;
+  }
+}
+
+/** キャッシュを書く（フォールバック成功時のみ呼ばれる）。失敗はconsole.warnのみ。 */
+export async function setPaProsodyFallback(state: PaProsodyFallbackState): Promise<void> {
+  try {
+    await setAppState(PA_PROSODY_FALLBACK_APP_STATE_KEY, state);
+  } catch (err) {
+    console.warn('[azureSpeechConfig] paProsodyFallbackの保存に失敗しました（無視して続行）。', err);
+  }
+}
+
+/** キャッシュを消す（韻律あり成功時の自己回復）。失敗はconsole.warnのみ。 */
+export async function clearPaProsodyFallback(): Promise<void> {
+  try {
+    await deleteAppState(PA_PROSODY_FALLBACK_APP_STATE_KEY);
+  } catch (err) {
+    console.warn('[azureSpeechConfig] paProsodyFallbackの削除に失敗しました（無視して続行）。', err);
+  }
 }
 
 export interface AzureConnectionTestResult {

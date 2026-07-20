@@ -10,6 +10,7 @@ import { getLevelParams } from '../../lib/level/params';
 import type { AppLevel, PaResult, Scenario } from '../../lib/types';
 import { getSharedAudioContext, useRecorder, type RecordingResult } from '../recorder/useRecorder';
 import { synthesize } from '../speech/azureTts';
+import { AssessingIndicator } from './AssessingIndicator';
 
 const PASS_SCORE = 80;
 
@@ -135,7 +136,7 @@ export function KeyPhrasePanel({ scenario, level, busy, submitKeyPhrase, onDone 
         </div>
         {recorder.error && <p className="mt-2 text-xs text-red-600">{recorder.error}</p>}
         {playError && <p className="mt-2 text-xs text-red-600">{playError}</p>}
-        {busy && !recorder.isRecording && <p className="mt-2 text-xs text-neutral-400">発音を評価中…</p>}
+        {busy && !recorder.isRecording && <AssessingIndicator className="mt-2" />}
 
         {current && (
           <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm">

@@ -20,7 +20,7 @@ function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
       { en: 'For here, please.', ja: '店内でお願いします' },
     ],
     steps: [
-      { aiIntent: 'Greet', hintJa: 'あいさつ', hintEn: 'Hi, ...', modelAnswer: 'Hi, can I get a latte?' },
+      { aiIntent: 'Greet', hintJa: 'あいさつ', hintEn: 'Hi, ...', modelAnswer: 'Hi, can I get a mocha?' },
       { aiIntent: 'Ask size', hintJa: 'サイズ', hintEn: 'A medium...', modelAnswer: 'A medium one, please.' },
     ],
     hiddenObjectives: [],
@@ -31,46 +31,74 @@ function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
 }
 
 describe('buildPhraseHints', () => {
-  it('キーフレーズ英文と全stepsのmodelAnswerを順に集める', () => {
-    const hints = buildPhraseHints(makeScenario());
-    expect(hints).toEqual([
+  it('guided: キーフレーズ + 現在stepのmodelAnswerのみ（他のstepは含まない）', () => {
+    const hints = buildPhraseHints(makeScenario(), { phase: 'guided', stepIndex: 0 });
+    expect(hints).toEqual(['Can I get a latte?', 'For here, please.', 'Hi, can I get a mocha?']);
+    expect(hints).not.toContain('A medium one, please.');
+  });
+
+  it('guidedでstepIndexが進むと、そのstepのmodelAnswerに切り替わる', () => {
+    const hints = buildPhraseHints(makeScenario(), { phase: 'guided', stepIndex: 1 });
+    expect(hints).toEqual(['Can I get a latte?', 'For here, please.', 'A medium one, please.']);
+  });
+
+  it('free: キーフレーズのみ（modelAnswerを含まない）', () => {
+    const hints = buildPhraseHints(makeScenario(), { phase: 'free', stepIndex: 1 });
+    expect(hints).toEqual(['Can I get a latte?', 'For here, please.']);
+  });
+
+  it('keyphraseフェーズもキーフレーズのみ', () => {
+    const hints = buildPhraseHints(makeScenario(), { phase: 'keyphrase', stepIndex: 0 });
+    expect(hints).toEqual(['Can I get a latte?', 'For here, please.']);
+  });
+
+  it('guidedでstepIndexが範囲外ならキーフレーズのみ（クラッシュしない）', () => {
+    expect(buildPhraseHints(makeScenario(), { phase: 'guided', stepIndex: 99 })).toEqual([
       'Can I get a latte?',
       'For here, please.',
-      'Hi, can I get a latte?',
-      'A medium one, please.',
+    ]);
+    expect(buildPhraseHints(makeScenario(), { phase: 'guided', stepIndex: -1 })).toEqual([
+      'Can I get a latte?',
+      'For here, please.',
     ]);
   });
 
-  it('trimして空文字を除き、大文字小文字を無視して重複を除去する', () => {
-    const hints = buildPhraseHints(
-      makeScenario({
-        keyPhrases: [
-          { en: '  Can I get a latte?  ', ja: 'ラテ' },
-          { en: '', ja: '空' },
-          { en: '   ', ja: '空白のみ' },
-        ],
-        steps: [
-          { aiIntent: 'x', hintJa: 'x', hintEn: 'x', modelAnswer: 'can i get a latte?' },
-          { aiIntent: 'y', hintJa: 'y', hintEn: 'y', modelAnswer: 'Sounds good.' },
-        ],
-      }),
-    );
-    expect(hints).toEqual(['Can I get a latte?', 'Sounds good.']);
+  it('現在stepのmodelAnswerがキーフレーズと重複（大小・空白無視）なら除去する', () => {
+    const scenario = makeScenario({
+      steps: [
+        { aiIntent: 'x', hintJa: 'x', hintEn: 'x', modelAnswer: '  can i get a latte?  ' },
+      ],
+    });
+    const hints = buildPhraseHints(scenario, { phase: 'guided', stepIndex: 0 });
+    expect(hints).toEqual(['Can I get a latte?', 'For here, please.']);
+  });
+
+  it('trimして空文字を除く', () => {
+    const scenario = makeScenario({
+      keyPhrases: [
+        { en: '  Can I get a latte?  ', ja: 'ラテ' },
+        { en: '', ja: '空' },
+        { en: '   ', ja: '空白のみ' },
+      ],
+    });
+    const hints = buildPhraseHints(scenario, { phase: 'free', stepIndex: 0 });
+    expect(hints).toEqual(['Can I get a latte?']);
   });
 
   it('最大MAX_PHRASE_HINTS件で打ち切る', () => {
-    const manySteps = Array.from({ length: MAX_PHRASE_HINTS + 10 }, (_, i) => ({
-      aiIntent: 'x',
-      hintJa: 'x',
-      hintEn: 'x',
-      modelAnswer: `Sentence number ${i}.`,
+    const manyKeyPhrases = Array.from({ length: MAX_PHRASE_HINTS + 10 }, (_, i) => ({
+      en: `Key phrase number ${i}.`,
+      ja: `フレーズ${i}`,
     }));
-    const hints = buildPhraseHints(makeScenario({ keyPhrases: [], steps: manySteps }));
+    const hints = buildPhraseHints(makeScenario({ keyPhrases: manyKeyPhrases }), {
+      phase: 'free',
+      stepIndex: 0,
+    });
     expect(hints).toHaveLength(MAX_PHRASE_HINTS);
-    expect(hints[0]).toBe('Sentence number 0.');
+    expect(hints[0]).toBe('Key phrase number 0.');
   });
 
-  it('キーフレーズもstepsも無ければ空配列を返す', () => {
-    expect(buildPhraseHints(makeScenario({ keyPhrases: [], steps: [] }))).toEqual([]);
+  it('キーフレーズが無ければ空配列（freeの場合）', () => {
+    expect(buildPhraseHints(makeScenario({ keyPhrases: [] }), { phase: 'free', stepIndex: 0 })).toEqual([]);
   });
 });

@@ -54,14 +54,31 @@ function buildCalendarDates(today: string): string[] {
   return dates;
 }
 
-function buildSparklinePoints(scores: number[], width: number, height: number): string {
-  if (scores.length === 0) return '';
-  if (scores.length === 1) {
-    const y = height - (scores[0] / 100) * height;
-    return `0,${y.toFixed(1)} ${width},${y.toFixed(1)}`;
-  }
-  const stepX = width / (scores.length - 1);
-  return scores.map((s, i) => `${(i * stepX).toFixed(1)},${(height - (s / 100) * height).toFixed(1)}`).join(' ');
+/** 発音スコア推移チャートの座標系（viewBox 300x84。左に縦軸ラベルぶんの余白）。 */
+const CHART = {
+  width: 300,
+  height: 84,
+  plotLeft: 26,
+  plotRight: 296,
+  plotTop: 6,
+  plotBottom: 72,
+} as const;
+
+/** スコア(0-100)をプロット領域のy座標へ変換する。 */
+function chartY(score: number): number {
+  const { plotTop, plotBottom } = CHART;
+  return plotBottom - (score / 100) * (plotBottom - plotTop);
+}
+
+/** i番目(0始まり)のスコアのx座標。1点だけの場合は中央に置く。 */
+function chartX(index: number, count: number): number {
+  const { plotLeft, plotRight } = CHART;
+  if (count <= 1) return (plotLeft + plotRight) / 2;
+  return plotLeft + (index / (count - 1)) * (plotRight - plotLeft);
+}
+
+function buildSparklinePoints(scores: number[]): string {
+  return scores.map((s, i) => `${chartX(i, scores.length).toFixed(1)},${chartY(s).toFixed(1)}`).join(' ');
 }
 
 export function ProgressPage() {
@@ -142,7 +159,8 @@ export function ProgressPage() {
     .filter((c) => c.status === 'completed' && c.metrics)
     .sort((a, b) => a.startedAt - b.startedAt)
     .map((c) => c.metrics!.pronScore);
-  const sparklinePoints = buildSparklinePoints(pronScores, 300, 60);
+  const sparklinePoints = buildSparklinePoints(pronScores);
+  const lastScore = pronScores.length > 0 ? pronScores[pronScores.length - 1] : null;
 
   return (
     <div className="flex flex-col gap-5 p-4 pb-8">
@@ -247,13 +265,60 @@ export function ProgressPage() {
         </div>
       </section>
 
-      {/* 発音スコア推移 */}
+      {/* 発音スコア推移（単一系列スパークライン+控えめな縦軸。均一スケールでラベルを歪ませない） */}
       <section className="rounded-2xl border border-neutral-200 p-4">
         <p className="text-sm font-bold text-neutral-800">発音スコア推移</p>
-        {pronScores.length > 0 ? (
-          <svg viewBox="0 0 300 60" preserveAspectRatio="none" className="mt-2 h-16 w-full text-hana-500">
-            <polyline points={sparklinePoints} fill="none" stroke="currentColor" strokeWidth={2} />
-          </svg>
+        {pronScores.length > 0 && lastScore !== null ? (
+          <>
+            <svg viewBox={`0 0 ${CHART.width} ${CHART.height}`} className="mt-2 w-full">
+              {/* 縦軸: 0/50/100の水平グリッド線と数値ラベル */}
+              {[0, 50, 100].map((tick) => (
+                <g key={tick}>
+                  <line
+                    x1={CHART.plotLeft}
+                    x2={CHART.plotRight}
+                    y1={chartY(tick)}
+                    y2={chartY(tick)}
+                    className="stroke-neutral-200"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={CHART.plotLeft - 4}
+                    y={chartY(tick) + 3}
+                    textAnchor="end"
+                    fontSize={9}
+                    className="fill-neutral-400"
+                  >
+                    {tick}
+                  </text>
+                </g>
+              ))}
+              <polyline
+                points={sparklinePoints}
+                fill="none"
+                strokeWidth={2}
+                className="stroke-hana-500"
+              />
+              {/* 直近値の直接ラベル（全点にはラベルを付けない） */}
+              <circle
+                cx={chartX(pronScores.length - 1, pronScores.length)}
+                cy={chartY(lastScore)}
+                r={3}
+                className="fill-hana-500"
+              />
+              <text
+                x={Math.min(chartX(pronScores.length - 1, pronScores.length), CHART.plotRight - 8)}
+                y={Math.max(chartY(lastScore) - 6, CHART.plotTop + 8)}
+                textAnchor="end"
+                fontSize={10}
+                fontWeight="bold"
+                className="fill-neutral-600"
+              >
+                {Math.round(lastScore)}
+              </text>
+            </svg>
+            <p className="mt-1 text-[10px] text-neutral-400">完了レッスン順（古い→新しい）・数値は最新スコア</p>
+          </>
         ) : (
           <p className="mt-2 text-xs text-neutral-400">まだ発音評価のデータがありません。</p>
         )}

@@ -18,13 +18,30 @@ import type {
 } from './types';
 
 /**
+ * 韻律非対応リージョンの当日キャッシュ（appState 'paProsodyFallback'。DESIGN.md §6a）。
+ * 「この学習日にこのリージョンで韻律あり評価が失敗し、韻律なしフォールバックが成功した」の記録。
+ */
+export interface PaProsodyFallbackState {
+  region: string;
+  /** learningDate形式 (YYYY-MM-DD)。日付が変わると不一致になり自動で再プローブされる。 */
+  date: string;
+}
+
+/**
  * appStateに保存する値の型（DESIGN.md §3末尾のkeys一覧に対応）。
  * types.tsには存在しないため、shadotoma同様このファイルで定義する
  * （appStateは素朴なkey-valueであり、DBSchemaの都合以外でtypes.tsに置く理由が無いため）。
  * ReviewStats（'reviewStats'）とreviewDates（string[]）はサイレント復習（DESIGN.md §4b）が使う。
  * appStateはスキーマレスなためDBバージョンは1のまま。
  */
-export type AppStateValue = string | number | boolean | string[] | DailyCaps | ReviewStats;
+export type AppStateValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | DailyCaps
+  | ReviewStats
+  | PaProsodyFallbackState;
 
 interface AppStateRecord {
   key: string;
