@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  /* はなとまのブランド色。姉妹アプリ shadotoma のトマト赤(#e0473f)と区別できる
+     「完熟前のオレンジトマト」系。マニフェスト(vite.config.ts)の theme_color と合わせる。 */
+  --color-hana-50: #fff8f1;
+  --color-hana-100: #ffeeda;
+  --color-hana-200: #ffd6ae;
+  --color-hana-300: #ffb877;
+  --color-hana-400: #fb923c;
+  --color-hana-500: #ea7317;
+  --color-hana-600: #c85a0d;
+  --color-hana-700: #a1460d;
+  --color-hana-800: #7c3a12;
+  --color-hana-900: #5f2e10;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
