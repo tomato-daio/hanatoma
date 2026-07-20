@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { getAzureSpeechKey } from '../features/speech/azureSpeechConfig';
 import { PaEvaluationPanel } from '../features/speech/selftest/PaEvaluationPanel';
 import { RecordingPanel } from '../features/speech/selftest/RecordingPanel';
+import { StreamingPaPanel } from '../features/speech/selftest/StreamingPaPanel';
 import { TtsTestPanel } from '../features/speech/selftest/TtsTestPanel';
 import type { RecordingResult } from '../features/recorder/useRecorder';
 
@@ -56,6 +57,7 @@ export function SelfTestPage() {
       <PaEvaluationPanel title="2. 発音評価を実行（unscripted）" mode="unscripted" recording={recording} />
       <PaEvaluationPanel title="3. scriptedモードテスト" mode="scripted" recording={recording} />
       <TtsTestPanel />
+      <StreamingPaPanel />
     </div>
   );
 }

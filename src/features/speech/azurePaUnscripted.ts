@@ -361,8 +361,9 @@ type AzureSpeechSDK = typeof import('microsoft-cognitiveservices-speech-sdk');
  * WebKitではSDK内部の既知バグ（privSource.turnOff周辺）により後片付けで例外が出ることがあるが、
  * その時点で認識結果は取得済みのことが多い。後片付けの成否は評価の成否に影響させず、
  * console.warnに全文を残すだけにする（ファイル冒頭コメント参照）。
+ * azurePaStreaming.ts（M11）も同じ対策を共有するためexportする。
  */
-function swallowTeardownError(label: string, fn: () => void): void {
+export function swallowTeardownError(label: string, fn: () => void): void {
   try {
     fn();
   } catch (err) {
@@ -429,6 +430,10 @@ async function recognizeOnce(
 ): Promise<PhraseAssessment[]> {
   const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(opts.apiKey, opts.region);
   speechConfig.speechRecognitionLanguage = 'en-US';
+  // SDKは既定で「先頭5秒を超えた分は実時間の2倍速」に送信をペーシングする
+  // (ServiceRecognizerBase.sendAudio)。録音済み音声の一括投入に実時間ペースは不要なので
+  // 実質無効化する（5秒超の発話の評価待ちがそのぶん短くなる。DESIGN.md §6a）。
+  speechConfig.setProperty('SPEECH-TransmitLengthBeforThrottleMs', '300000');
 
   const pushStream = SpeechSDK.AudioInputStream.createPushStream();
   pushStream.write(wavBuffer);

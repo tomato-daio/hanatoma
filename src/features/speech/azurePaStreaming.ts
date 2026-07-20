@@ -1,0 +1,331 @@
+/**
+ * 録音中ストリーミング発音評価（DESIGN.md §5・§6a M11）。
+ *
+ * batch方式（azurePaUnscripted.assessSpeech: 録音停止後に接続→一括送信→認識）と違い、
+ * **録音開始時に** SDKロード→WebSocket事前接続→continuous認識開始まで済ませ、
+ * マイクの16kHz PCM16チャンクを逐次pushする。録音停止時は pushStream.close() して
+ * 確定結果を待つだけになり、「発音を評価中」の体感が1〜2秒に短縮される。
+ *
+ * 失敗契約（DESIGN.md §6a）: このモジュールは**内部層としてthrowする**。
+ * 呼び出し側（voiceCapture.ts→useConversation）はthrow/失敗時に録音済みBlobから
+ * 既存のbatch評価へ自動フォールバックする。「throwせずpa.azureErrorで返す」PaResult契約は
+ * フォールバック先のassessSpeech（無変更）が最終的に保証する。
+ *
+ * 韻律（プロソディ）: 当日キャッシュ（shouldSkipProsody・appState paProsodyFallback）で
+ * 事前判定するのみで、ストリーミング内での韻律なしリトライは行わない（音声を再送できないため）。
+ * 韻律起因で失敗した場合はbatchへフォールバックし、batch側の既存ロジックがリトライと
+ * キャッシュ書き込みを行う → 翌ターン以降のストリーミングはキャッシュにより韻律なしで
+ * 開始する（自己回復）。
+ *
+ * iOS Safariの後片付けバグ対策（privSource.turnOff）は azurePaUnscripted.ts の
+ * swallowTeardownError / resolveRecognitionOutcome を共有する。
+ */
+
+import { learningDate } from '../../lib/dates';
+import {
+  aggregatePhraseAssessments,
+  AzurePronunciationAuthError,
+  AzurePronunciationNetworkError,
+  AzurePronunciationNoResultError,
+  AzurePronunciationTimeoutError,
+  AzureSpeechKeyMissingError,
+  resolveRecognitionOutcome,
+  shouldSkipProsody,
+  swallowTeardownError,
+  toPhraseAssessment,
+  type AssessSpeechResult,
+  type AzureDetailResultLike,
+  type PhraseAssessment,
+} from './azurePaUnscripted';
+
+export interface StreamingPaOptions {
+  mode: 'unscripted' | 'scripted';
+  /** scripted時は必須（キーフレーズ文）。 */
+  referenceText?: string;
+  /** 認識の文脈補助（§6a。PhraseListGrammar）。 */
+  phraseHints?: string[];
+}
+
+export interface StreamingPaSession {
+  /** 16kHz mono PCM16を追記する。finish/abort後の呼び出しは無視される。 */
+  writeChunk(pcm16: ArrayBuffer): void;
+  /** これまでに書き込んだ音声の秒数（usageLog加算用）。 */
+  audioSeconds(): number;
+  /**
+   * ストリームを閉じて確定結果を待つ（多重呼び出しは同じPromiseを返す）。
+   * 失敗（接続断・韻律非対応・結果ゼロ・タイムアウト）はthrowする（呼び出し側がbatchへ）。
+   */
+  finish(): Promise<AssessSpeechResult>;
+  /** セッションを破棄する（結果は返らない）。何度呼んでも安全。 */
+  abort(): void;
+}
+
+/** セッションの状態（純関数nextSessionStateで遷移。終端状態は不変）。 */
+export type StreamingSessionState = 'connecting' | 'streaming' | 'finishing' | 'done' | 'failed' | 'aborted';
+export type StreamingSessionEvent =
+  | 'connected'
+  | 'finishRequested'
+  | 'settledOk'
+  | 'settledError'
+  | 'abortRequested';
+
+/**
+ * セッション状態遷移の純関数（Vitest対象）。
+ * - done/failed/aborted は終端で不変（abortの冪等性を含む）
+ * - finishRequested は connecting/streaming のどちらからでも finishing へ
+ * - settledOk は finishing からのみ done へ（二重finishの整合）
+ */
+export function nextSessionState(
+  state: StreamingSessionState,
+  event: StreamingSessionEvent,
+): StreamingSessionState {
+  if (state === 'done' || state === 'failed' || state === 'aborted') return state;
+  switch (event) {
+    case 'connected':
+      return state === 'connecting' ? 'streaming' : state;
+    case 'finishRequested':
+      return 'finishing';
+    case 'settledOk':
+      return state === 'finishing' ? 'done' : state;
+    case 'settledError':
+      return 'failed';
+    case 'abortRequested':
+      return 'aborted';
+  }
+}
+
+/** 16kHz mono PCM16のバイト数→秒数（32000バイト/秒）。純関数。 */
+export function pcmBytesToSeconds(bytes: number): number {
+  return bytes / 32000;
+}
+
+/**
+ * Speech SDKチャンクの事前読み込み（約100KB gz）。会話画面のマウント時に呼び、
+ * 初回録音時のSDK動的importコストを排除する。失敗は無視する（実行時に再importされる）。
+ */
+export function prewarmSpeechSdk(): void {
+  void import('microsoft-cognitiveservices-speech-sdk').catch(() => {});
+}
+
+/** finish時の確定待ちタイムアウト。音声送信済みのため確定は速い前提（超過はbatchへ）。 */
+const FINISH_TIMEOUT_MS = 15_000;
+
+/**
+ * ストリーミング評価セッションを開始する（録音開始時に呼ぶ）。
+ * 解決した時点で認識開始済み＝writeChunkを受け付けられる状態。
+ * キー未設定・SDKロード失敗・認識開始失敗はthrowする。
+ */
+export async function startStreamingPa(opts: StreamingPaOptions): Promise<StreamingPaSession> {
+  const referenceText = opts.mode === 'scripted' ? (opts.referenceText ?? '').trim() : '';
+  if (opts.mode === 'scripted' && referenceText === '') {
+    throw new Error('scripted評価にはreferenceTextが必要です。');
+  }
+
+  const t0 = performance.now();
+  const [SpeechSDK, config] = await Promise.all([
+    import('microsoft-cognitiveservices-speech-sdk'),
+    import('./azureSpeechConfig'),
+  ]);
+  const apiKey = await config.getAzureSpeechKey();
+  if (!apiKey) throw new AzureSpeechKeyMissingError();
+  const region = await config.getAzureSpeechRegion();
+  const today = learningDate(new Date());
+  const skipProsody = shouldSkipProsody(await config.getPaProsodyFallback(), region, today);
+
+  const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(apiKey, region);
+  speechConfig.speechRecognitionLanguage = 'en-US';
+  // ライブ音声は実時間で流入するため通常は無関係だが、接続遅延時のバックログ一括flushと
+  // finish時の残量送信が実時間ペーシングで待たされないようにする（batch側と同じ設定）。
+  speechConfig.setProperty('SPEECH-TransmitLengthBeforThrottleMs', '300000');
+
+  // WAVヘッダなしの生PCM(16k/16bit/mono)を逐次pushする。
+  const format = SpeechSDK.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1);
+  const pushStream = SpeechSDK.AudioInputStream.createPushStream(format);
+  const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(pushStream);
+  const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+
+  const pronunciationConfig = new SpeechSDK.PronunciationAssessmentConfig(
+    referenceText,
+    SpeechSDK.PronunciationAssessmentGradingSystem.HundredMark,
+    SpeechSDK.PronunciationAssessmentGranularity.Phoneme,
+    opts.mode === 'scripted',
+  );
+  pronunciationConfig.enableProsodyAssessment = !skipProsody;
+  pronunciationConfig.applyTo(recognizer);
+
+  const hints = (opts.phraseHints ?? []).map((h) => h.trim()).filter((h) => h.length > 0);
+  if (hints.length > 0) {
+    SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer).addPhrases(hints);
+  }
+
+  let state: StreamingSessionState = 'connecting';
+  const phrases: PhraseAssessment[] = [];
+  let recognitionError: Error | null = null;
+  let bytesWritten = 0;
+  let connectedMs: number | null = null;
+  let firstEventMs: number | null = null;
+
+  // 認識セッションの終了（sessionStopped or エラー）を待つためのシグナル。
+  let settleFn: (() => void) | null = null;
+  let settledFlag = false;
+  const settled = new Promise<void>((resolve) => {
+    settleFn = () => {
+      if (settledFlag) return;
+      settledFlag = true;
+      resolve();
+    };
+  });
+  const settle = () => settleFn?.();
+
+  const markFirstEvent = () => {
+    if (firstEventMs === null) firstEventMs = performance.now() - t0;
+  };
+
+  recognizer.recognizing = () => markFirstEvent();
+  recognizer.recognized = (_sender, e) => {
+    markFirstEvent();
+    if (e.result.reason !== SpeechSDK.ResultReason.RecognizedSpeech) return;
+    try {
+      const detail = SpeechSDK.PronunciationAssessmentResult.fromResult(e.result).detailResult;
+      phrases.push(
+        toPhraseAssessment(detail as unknown as AzureDetailResultLike, e.result.duration, e.result.text ?? ''),
+      );
+    } catch {
+      // 個々のフレーズのパース失敗は無視して継続する。
+    }
+  };
+  recognizer.canceled = (_sender, e) => {
+    if (e.reason !== SpeechSDK.CancellationReason.Error) return; // EndOfStreamはsessionStopped側で解決
+    let err: Error;
+    if (e.errorCode === SpeechSDK.CancellationErrorCode.AuthenticationFailure) {
+      err = new AzurePronunciationAuthError();
+    } else if (
+      e.errorCode === SpeechSDK.CancellationErrorCode.ConnectionFailure ||
+      e.errorCode === SpeechSDK.CancellationErrorCode.ServiceTimeout
+    ) {
+      err = new AzurePronunciationNetworkError(e.errorDetails);
+    } else {
+      // 韻律非対応リージョン等（BadRequest）は多くの場合ここに来る。
+      err = new Error(e.errorDetails || 'Azure Speechでキャンセルされました。');
+    }
+    if (!recognitionError) recognitionError = err;
+    settle();
+  };
+  recognizer.sessionStopped = () => {
+    try {
+      recognizer.stopContinuousRecognitionAsync(
+        () => settle(),
+        (err) => {
+          console.warn('[azurePaStreaming] stopContinuousRecognitionAsyncがエラーを返しました（後片付けの失敗は評価の成否に影響させません）。', err);
+          settle();
+        },
+      );
+    } catch (err) {
+      console.warn('[azurePaStreaming] stopContinuousRecognitionAsyncの呼び出しで例外が発生しました（後片付けの失敗は評価の成否に影響させません）。', err);
+      settle();
+    }
+  };
+
+  // WebSocketの事前確立（認識開始前にハンドシェイクを済ませる）。失敗しても
+  // startContinuousRecognitionAsyncが自前で接続するため致命的ではない。
+  try {
+    const connection = SpeechSDK.Connection.fromRecognizer(recognizer);
+    connection.connected = () => {
+      if (connectedMs === null) connectedMs = performance.now() - t0;
+      state = nextSessionState(state, 'connected');
+    };
+    connection.openConnection();
+  } catch (err) {
+    console.warn('[azurePaStreaming] WebSocketの事前確立に失敗しました（認識開始時に再接続されます）。', err);
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    recognizer.startContinuousRecognitionAsync(
+      () => resolve(),
+      (err) => reject(new AzurePronunciationNetworkError(String(err))),
+    );
+  });
+
+  const closeAll = () => {
+    swallowTeardownError('recognizer.close', () => recognizer.close());
+    swallowTeardownError('audioConfig.close', () => audioConfig.close());
+    swallowTeardownError('speechConfig.close', () => speechConfig.close());
+  };
+
+  let finishing: Promise<AssessSpeechResult> | null = null;
+
+  const session: StreamingPaSession = {
+    writeChunk(pcm16: ArrayBuffer) {
+      if (state !== 'connecting' && state !== 'streaming') return;
+      if (pcm16.byteLength === 0) return;
+      try {
+        pushStream.write(pcm16);
+        bytesWritten += pcm16.byteLength;
+      } catch (err) {
+        console.warn('[azurePaStreaming] pushStream.writeに失敗しました（このチャンクは破棄されます）。', err);
+      }
+    },
+
+    audioSeconds() {
+      return pcmBytesToSeconds(bytesWritten);
+    },
+
+    finish() {
+      if (finishing) return finishing;
+      state = nextSessionState(state, 'finishRequested');
+      finishing = (async () => {
+        const tClose = performance.now();
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        try {
+          swallowTeardownError('pushStream.close', () => pushStream.close());
+          await Promise.race([
+            settled,
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new AzurePronunciationTimeoutError()), FINISH_TIMEOUT_MS);
+            }),
+          ]);
+          const resolved = resolveRecognitionOutcome(phrases, recognitionError);
+          if (resolved.length === 0) throw new AzurePronunciationNoResultError();
+          const result = aggregatePhraseAssessments(resolved, {
+            mode: opts.mode,
+            usedProsody: !skipProsody,
+          });
+          if (!result) throw new AzurePronunciationNoResultError();
+          state = nextSessionState(state, 'settledOk');
+          console.info(
+            `[azurePaStreaming] 接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms / ` +
+              `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms / ` +
+              `close→確定 ${Math.round(performance.now() - tClose)}ms / ` +
+              `音声 ${pcmBytesToSeconds(bytesWritten).toFixed(1)}s / ${opts.mode} / ` +
+              `韻律${skipProsody ? 'なし(当日キャッシュ)' : 'あり'}`,
+          );
+          return result;
+        } catch (err) {
+          state = nextSessionState(state, 'settledError');
+          throw err;
+        } finally {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
+          closeAll();
+        }
+      })();
+      return finishing;
+    },
+
+    abort() {
+      if (state === 'done' || state === 'failed' || state === 'aborted') return;
+      state = nextSessionState(state, 'abortRequested');
+      swallowTeardownError('pushStream.close(abort)', () => pushStream.close());
+      try {
+        recognizer.stopContinuousRecognitionAsync(
+          () => {},
+          () => {},
+        );
+      } catch {
+        // 停止呼び出しの失敗は破棄時には問題にしない。
+      }
+      closeAll();
+    },
+  };
+
+  return session;
+}

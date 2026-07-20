@@ -223,18 +223,21 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 ## 5. 1ターンの音声パイプライン
 
 ```
-[録音] MediaRecorder（push-to-talk: マイク大ボタンで開始/停止）
-  ↓ 停止
-[変換] decodeAudioData → 16kHz mono Float32 → WAV PCM16（src/lib/wav.ts = shadotomaコピー）
-  ↓
-[Azure PA] pushStream一括投入 → 認識テキスト + 発音スコア（1コール。§6）
+[録音開始] beginVoiceTurn/beginKeyPhrase（M11）:
+  キャップ判定(NGなら録音させない) → Wake Lock → MediaRecorder並走（保存/フォールバック用）
+  → AudioWorklet(pcmTapWorklet): micSource→Float32チャンク
+  → lib/pcm.ts: 線形補間ダウンサンプル(実レート→16k・チャンク境界持ち越し) → PCM16
+  → azurePaStreaming: SDK事前warm済→WS事前接続→continuous認識へ逐次push
+[録音停止] session.finish(): pushStream.close → 確定結果（体感1〜2秒）
+  失敗時（韻律初回失敗/接続断/worklet不可/結果ゼロ/15sタイムアウト）は
+  録音Blobから従来のbatch経路（decodeToMono16k→WAV→assessSpeech）へ自動フォールバック
   ↓ 認識テキストを即時表示
 [Claude Haiku] streaming で返答生成（§7a）。テキストは逐次表示
   ↓ 文境界ごとに
 [Azure TTS] SSML合成 → ArrayBuffer → 統一AudioContextでキュー再生（§6c）
 ```
 
-- 目標レイテンシ（ユーザー発話終了→AI音声開始）: 合計 ≤3.2秒。区間別目安: WAV変換≤0.3s / PA≤1.2s / Haiku初文≤1.2s / TTS初回≤0.5s。M3でコンソールに区間ログを出す
+- 目標レイテンシ（ユーザー発話終了→AI音声開始）: 合計 ≤3.2秒。区間別目安: **PA確定（stream close→結果）≤1.5s** / Haiku初文≤1.2s / TTS初回≤0.5s。batchフォールバック時はWAV変換≤0.3s+PA一括ぶんが加算。フッターの計測表示は `PA xxxms(S|B)` でstream/batchを区別、内訳（接続/初回認識/close→確定）はconsole.info
 - テキスト入力切替: キーボードアイコンで入力欄表示。PAはスキップ（`pa`なし・`inputMode:'text'`）
 - 録音中: 経過秒・レベルメーター（AnalyserNode）・Wake Lock取得。マイクトラックended/mute検知時は「マイクがOSに停止されました。もう一度録音開始を押してください」
 - 評価中: 小スピナー+経過秒表示（`AssessingIndicator.tsx`。「発音を評価中… n秒」。経過秒はDate.now()差分から導出しStrictMode二重実行に耐える）
@@ -252,6 +255,15 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - 音素スコアを集計し `weakPhonemes`（低スコア音素トップ3: 記号・平均点・例語最大2）を保存
 - PAエラー時も会話は継続する（認識テキストが取れなければ「聞き取れませんでした。もう一度どうぞ」表示。Haikuは呼ばない）
 - **フレーズヒント**（認識精度向上）: `assessSpeech` は `phraseHints?: string[]` を受け取り、`PhraseListGrammar.fromRecognizer(recognizer).addPhrases()` で認識エンジンに渡す。会話ターンでは `buildPhraseHints(scenario, ctx: {phase, stepIndex})`（`src/features/conversation/phraseHints.ts`・純関数・Vitest必須）で**文脈に絞って**組み立てる: ガイド中=キーフレーズ英文+現在stepのmodelAnswerのみ、それ以外（フリー会話等）=キーフレーズ英文のみ。⚠️全stepsの模範解答（長文8〜10件）を一括で渡すと認識がヒント文へ引っ張られる over-biasing の実害があったため、範囲を広げないこと。ヒントは重複除去（大文字小文字無視）・空除去のうえ最大40件
+
+- **送信スロットルの無効化**: SDKは既定で先頭5秒を超えた分を実時間の2倍速にペーシングする（ServiceRecognizerBase.sendAudio）。録音済み音声の一括投入に実時間ペースは不要なため、stream/batch両経路で `speechConfig.setProperty('SPEECH-TransmitLengthBeforThrottleMs','300000')` を設定する
+
+### 6a-2. ストリーミング発音評価（M11）`azurePaStreaming.ts`
+- **録音開始時に** SDK import（useConversationマウント時にprewarmSpeechSdkで事前ロード済み）→ WS事前接続（Connection.openConnection）→ continuous認識開始まで済ませ、マイクの16k PCM16（`lib/pcm.ts` の決定的リサンプラ+`recorder/pcmTapWorklet.ts` のAudioWorkletで生成）を逐次push。停止時は close→確定待ちのみ
+- **失敗契約**: このモジュールは内部層としてthrowする。呼び出し側（`conversation/voiceCapture.ts`→useConversation）が録音Blobからbatch(assessSpeech・無変更)へ自動フォールバックし、「throwせずazureErrorで返す」PaResult契約はbatchが最終保証する
+- **韻律**: 当日キャッシュ（shouldSkipProsody）で事前判定のみ。ストリーミング内での韻律なしリトライはしない（音声を再送できない）。韻律起因の失敗→batchが既存ロジックでリトライ・キャッシュ書込→翌ターンからストリーミングも韻律なしで開始（自己回復）
+- iOS teardownバグ対策（swallowTeardownError）・resolveRecognitionOutcome・aggregatePhraseAssessments は azurePaUnscripted.ts と共有
+- セッション状態遷移は純関数 nextSessionState（Vitest）。usageLog加算はstream/batchどちらか一方のみ
 
 ### 6b. scripted 発音評価（キーフレーズ予習用）
 - referenceText=キーフレーズ文。enableMiscue=true。他は6aと同じ。completenessScoreあり
@@ -377,12 +389,13 @@ hanatoma/
       level/{metrics.ts, progress.ts, params.ts}
       game/{xp.ts, quests.ts, badges.ts, stars.ts, streakUnion.ts}
       review/{sm2.ts, reviewCards.ts}（サイレント復習の純関数。§4b）
+      pcm.ts（M11: 決定的リサンプラ+PCM16変換の純関数）
       usage/{caps.ts, pricing.ts}
     features/
-      speech/（azureSpeechConfig.ts, azurePaUnscripted.ts, azureTts.ts, voiceList.ts）
+      speech/（azureSpeechConfig.ts, azurePaUnscripted.ts, azurePaStreaming.ts(M11), azureTts.ts, voiceList.ts）
       llm/（anthropicClient.ts, haikuPartner.ts, sonnetCorrection.ts, prompts/）
-      recorder/（useRecorder.ts）
-      conversation/（useConversation.ts=状態機械, MicButton.tsx, TurnList.tsx, HintPanel.tsx ほか）
+      recorder/（useRecorder.ts, pcmTapWorklet.ts(M11)）
+      conversation/（useConversation.ts=状態機械, voiceCapture.ts(M11), MicButton.tsx, TurnList.tsx, HintPanel.tsx ほか）
       report/（CorrectionReportView.tsx, ExpressionNotebook.tsx, phonemeComments.ts, exportToShadotoma.ts）
       sisterApp/（shadotomaBridge.ts, shadotomaMaterialContract.ts, weaknessFromSubmissions.ts）
       review/（reviewStore.ts。§4b。homeData.tsをimportしない葉モジュール）
@@ -405,6 +418,7 @@ hanatoma/
 - **M8** 連携: shadotomaブリッジ・コンビストリーク・弱点推薦・教材書き出し
 - **M9** 仕上げ: 動的生成、使用量ダッシュボード+キャップUI、PWA磨き、最終QA
 - **M10** サイレント復習: SM-2間隔反復めくりカード（§4b）、ストリーク合流、ホーム/表現帳導線
+- **M11** ストリーミングPA: 録音中逐次評価（worklet→16k PCM16→push・WS事前接続・SDK事前warm）、batch自動フォールバック、送信スロットル無効化、selftest検証パネル
 
 ## 15. 検収基準（共通）
 

@@ -18,19 +18,34 @@ interface Props {
   scenario: Scenario;
   level: AppLevel;
   busy: boolean;
+  /** 録音開始前に呼ぶ（M11: キャップ判定+scriptedストリーミング評価開始）。falseなら録音しない。 */
+  beginKeyPhrase: (phraseEn: string) => Promise<boolean>;
+  /** 録音中のマイクPCM（ストリーミング評価用）。 */
+  onAudioChunk: (chunk: Float32Array, sampleRate: number) => void;
+  /** 録音が結果なしで終わった場合にストリーミング評価を破棄する。 */
+  cancelVoiceCapture: () => void;
   submitKeyPhrase: (phraseEn: string, recording: RecordingResult) => Promise<PaResult | null>;
   /** 予習を終えて対話へ進む（スキップ時も呼ばれる）。 */
   onDone: () => void;
 }
 
-export function KeyPhrasePanel({ scenario, level, busy, submitKeyPhrase, onDone }: Props) {
+export function KeyPhrasePanel({
+  scenario,
+  level,
+  busy,
+  beginKeyPhrase,
+  onAudioChunk,
+  cancelVoiceCapture,
+  submitKeyPhrase,
+  onDone,
+}: Props) {
   const [index, setIndex] = useState(0);
   const [results, setResults] = useState<(PaResult | null)[]>(() =>
     scenario.keyPhrases.map(() => null),
   );
   const [playing, setPlaying] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
-  const recorder = useRecorder();
+  const recorder = useRecorder({ onAudioChunk });
 
   const phrase = scenario.keyPhrases[index];
   const isLast = index >= scenario.keyPhrases.length - 1;
@@ -63,11 +78,17 @@ export function KeyPhrasePanel({ scenario, level, busy, submitKeyPhrase, onDone 
   const record = async () => {
     if (!phrase) return;
     if (!recorder.isRecording) {
+      // 録音開始前にキャップ判定とscriptedストリーミング評価の開始を行う（M11）
+      const ok = await beginKeyPhrase(phrase.en);
+      if (!ok) return;
       await recorder.start();
       return;
     }
     const recording = await recorder.stop();
-    if (!recording) return;
+    if (!recording) {
+      cancelVoiceCapture();
+      return;
+    }
     const pa = await submitKeyPhrase(phrase.en, recording);
     if (pa) {
       setResults((prev) => prev.map((r, i) => (i === index ? pa : r)));

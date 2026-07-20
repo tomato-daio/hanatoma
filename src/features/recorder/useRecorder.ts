@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPcmTapNode, ensurePcmTapModule, supportsPcmTap } from './pcmTapWorklet';
 
 /**
  * 録音停止時に返す結果（DESIGN.md §5）。呼び出し側はこれをそのままWAV変換(§5パイプライン)に渡す。
@@ -7,6 +8,15 @@ export interface RecordingResult {
   blob: Blob;
   mimeType: string;
   durationMs: number;
+}
+
+export interface UseRecorderOptions {
+  /**
+   * 録音中、マイクPCM（デバイス既定sampleRateのFloat32チャンク）を逐次通知する
+   * （ストリーミング発音評価用。DESIGN.md §5 M11）。AudioWorklet初期化に失敗した
+   * 環境では呼ばれない（録音自体は従来どおり続行し、評価はbatch経路に落ちる）。
+   */
+  onAudioChunk?: (chunk: Float32Array, sampleRate: number) => void;
 }
 
 export interface UseRecorderResult {
@@ -75,7 +85,7 @@ export function getSharedAudioContext(): AudioContext {
  * 開始/停止はマイク大ボタンからの明示操作のみを前提とし、お手本終了等による自動停止はしない。
  * Wake Lockはターン全体（PA・Haiku・TTSを含む）にまたがるため、このフックの外側（会話状態機械）が管理する。
  */
-export function useRecorder(): UseRecorderResult {
+export function useRecorder(options?: UseRecorderOptions): UseRecorderResult {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [level, setLevel] = useState(0);
@@ -86,6 +96,11 @@ export function useRecorder(): UseRecorderResult {
   const chunksRef = useRef<BlobPart[]>([]);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  // PCMタップ（ストリーミング評価用）。コールバックはrefで持ち、依存配列を汚さない。
+  const onAudioChunkRef = useRef(options?.onAudioChunk);
+  onAudioChunkRef.current = options?.onAudioChunk;
+  const pcmTapNodeRef = useRef<AudioWorkletNode | null>(null);
+  const silentGainRef = useRef<GainNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -115,6 +130,13 @@ export function useRecorder(): UseRecorderResult {
     micSourceRef.current = null;
     analyserRef.current?.disconnect();
     analyserRef.current = null;
+    if (pcmTapNodeRef.current) {
+      pcmTapNodeRef.current.port.onmessage = null;
+      pcmTapNodeRef.current.disconnect();
+      pcmTapNodeRef.current = null;
+    }
+    silentGainRef.current?.disconnect();
+    silentGainRef.current = null;
     // 統一AudioContext自体はazureTts等が使い回すため、ここではcloseしない。
   }, []);
 
@@ -217,6 +239,35 @@ export function useRecorder(): UseRecorderResult {
       micSourceRef.current = micSource;
       analyserRef.current = analyser;
       monitorLevel();
+
+      // PCMタップ（ストリーミング評価用。DESIGN.md §5 M11）。初期化失敗は録音を止めず、
+      // チャンクが流れないだけにする（呼び出し側が自然にbatch評価へフォールバックする）。
+      if (onAudioChunkRef.current && supportsPcmTap()) {
+        try {
+          await ensurePcmTapModule(audioCtx);
+          if (disposedRef.current || abortedRef.current) {
+            stream.getTracks().forEach((track) => track.stop());
+            return;
+          }
+          const tap = createPcmTapNode(audioCtx, (chunk) => {
+            onAudioChunkRef.current?.(chunk, audioCtx.sampleRate);
+          });
+          // 出力未接続のworkletがレンダリンググラフからpullされない環境（WebKit）対策として、
+          // 無音ゲイン経由でdestinationへ繋ぐ（音は出ない）。
+          const silent = audioCtx.createGain();
+          silent.gain.value = 0;
+          micSource.connect(tap);
+          tap.connect(silent);
+          silent.connect(audioCtx.destination);
+          pcmTapNodeRef.current = tap;
+          silentGainRef.current = silent;
+        } catch (err) {
+          console.warn(
+            '[useRecorder] PCMタップの初期化に失敗しました（ストリーミング評価なしで録音を続行します）。',
+            err,
+          );
+        }
+      }
 
       const selectedMimeType = pickRecorderMimeType();
       const recorder = selectedMimeType

@@ -36,13 +36,15 @@ import {
   type ScenarioStep,
   type Turn,
 } from '../../lib/types';
-import { assessSpeech } from '../speech/azurePaUnscripted';
+import { assessSpeech, type AssessSpeechResult } from '../speech/azurePaUnscripted';
+import { prewarmSpeechSdk } from '../speech/azurePaStreaming';
 import { getAnthropicApiKey } from '../settings/anthropicKeyConfig';
 import { nextAiTurn } from '../llm/haikuPartner';
 import type { RecordingResult } from '../recorder/useRecorder';
 import { getScenarioById } from '../scenarios/loadScenarios';
 import { buildPhraseHints } from './phraseHints';
 import { SpeechQueue, splitSentences } from './speechQueue';
+import { beginVoiceCapture, type VoiceCaptureHandle } from './voiceCapture';
 
 export type ConversationBusy = 'idle' | 'assessing' | 'thinking' | 'speaking';
 
@@ -54,6 +56,8 @@ export interface TurnLatency {
   haikuFirstTextMs: number;
   /** ユーザー発話（録音停止）→AI音声の再生開始。 */
   totalToSpeechMs: number | null;
+  /** 発音評価の経路（M11）: stream=録音中ストリーミング / batch=停止後一括（フォールバック）。 */
+  paSource?: 'stream' | 'batch';
 }
 
 /**
@@ -99,8 +103,17 @@ export interface UseConversationResult {
   showNextHint: () => void;
   /** 模範解答を見た回数（XP計算用・M7）。 */
   modelAnswersShown: number;
-  /** 録音開始時に呼ぶ（thinkingMs計測用）。 */
-  markRecordStart: () => void;
+  /**
+   * 音声ターンの録音開始時に呼ぶ（M11: キャップ判定→Wake Lock→ストリーミング評価開始）。
+   * falseなら録音を開始しないこと（日次上限到達。infoに案内を出す）。
+   */
+  beginVoiceTurn: () => Promise<boolean>;
+  /** キーフレーズ予習の録音開始時に呼ぶ（M11: scriptedストリーミング評価開始）。 */
+  beginKeyPhrase: (phraseEn: string) => Promise<boolean>;
+  /** useRecorderのonAudioChunkへ渡す（録音中PCMをストリーミング評価へ流す）。 */
+  handleAudioChunk: (chunk: Float32Array, sampleRate: number) => void;
+  /** 録音が結果なしで終わった場合（OSによるマイク停止等）にストリーミング評価を破棄する。 */
+  cancelVoiceCapture: () => void;
   submitVoice: (recording: RecordingResult) => Promise<void>;
   submitText: (text: string) => Promise<void>;
   finish: () => Promise<Conversation | null>;
@@ -141,6 +154,8 @@ export function useConversation(conversationId: string | undefined): UseConversa
   const wakeLockRef = useRef(createWakeLockController());
   const openedRef = useRef(false);
   const processingRef = useRef(false);
+  /** 録音中のストリーミング発音評価（M11）。beginVoiceTurn/beginKeyPhraseで開始し、submit側で消費する。 */
+  const captureRef = useRef<VoiceCaptureHandle | null>(null);
 
   // --- 永続化ヘルパー ---
   const persist = useCallback(async (updates: Partial<Conversation>) => {
@@ -255,6 +270,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
         paMs: prev?.paMs ?? 0,
         haikuFirstTextMs: firstTextAt !== null ? Math.round(firstTextAt - tStart) : -1,
         totalToSpeechMs: prev && speechStartAt !== null ? Math.round(speechStartAt - tStart + prev.wavMs + prev.paMs) : null,
+        ...(prev?.paSource ? { paSource: prev.paSource } : {}),
       }));
 
       // 読み上げるものが無い（TTS失敗含む）ならこの場でidleへ
@@ -278,6 +294,8 @@ export function useConversation(conversationId: string | undefined): UseConversa
   useEffect(() => {
     if (!conversationId || openedRef.current) return;
     openedRef.current = true;
+    // 初回録音時のSDK動的importコストを排除する（M11。失敗は無視され実行時に再import）。
+    prewarmSpeechSdk();
     void (async () => {
       try {
         const conv = await getConversation(conversationId);
@@ -342,6 +360,8 @@ export function useConversation(conversationId: string | undefined): UseConversa
     const wakeLock = wakeLockRef.current;
     return () => {
       queueRef.current?.stop();
+      captureRef.current?.abort();
+      captureRef.current = null;
       wakeLock.dispose();
     };
   }, []);
@@ -380,39 +400,50 @@ export function useConversation(conversationId: string | undefined): UseConversa
       try {
         const tStop = performance.now();
         setBusy('assessing');
-
-        // 日次キャップ（PA分数）チェック
         const today = learningDate(new Date());
-        const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
-        const usage = await getUsageDay(today);
-        if (!canRunPa(usage, caps)) {
-          setBusy('idle');
-          setInfo('今日の発音評価の上限に達しました（設定で変更できます）。テキスト入力なら続けられます。');
-          return;
+
+        // ストリーミング評価（M11）: 録音中に進めた認識の確定を待つ。失敗はnull→batchへ。
+        // 日次キャップ判定は録音開始時（beginVoiceTurn）で実施済み。
+        const capture = captureRef.current;
+        captureRef.current = null;
+        let result: AssessSpeechResult | null = null;
+        let paSeconds = 0;
+        let paSource: 'stream' | 'batch' = 'stream';
+        let wavMs = 0;
+        let tPaStart = tStop;
+        if (capture) {
+          result = await capture.finish();
+          if (result) paSeconds = Math.round(capture.audioSeconds());
         }
 
-        // WAV変換
-        const pcm = await decodeToMono16k(recording.blob);
-        const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
-        const tWav = performance.now();
-
-        // 発音評価（unscripted）。Azure失敗時は例外ではなくpa.azureErrorで返る契約。
-        // フレーズヒント（§6a）: キーフレーズ+（ガイド中のみ）現在stepの模範解答だけを渡す
-        // （全stepsの長文を渡すと認識がヒントへ引っ張られるover-biasingの実害があった）
-        const result = await assessSpeech(wavBlob, {
-          mode: 'unscripted',
-          phraseHints: scenario
-            ? buildPhraseHints(scenario, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
-            : [],
-        });
+        if (!result) {
+          // batchフォールバック（従来経路）: 録音Blob全体をWAV化して一括評価する。
+          // Azure失敗時は例外ではなくpa.azureErrorで返る契約。
+          paSource = 'batch';
+          const tDecode = performance.now();
+          const pcm = await decodeToMono16k(recording.blob);
+          const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
+          wavMs = Math.round(performance.now() - tDecode);
+          tPaStart = performance.now();
+          // フレーズヒント（§6a）: キーフレーズ+（ガイド中のみ）現在stepの模範解答だけを渡す
+          // （全stepsの長文を渡すと認識がヒントへ引っ張られるover-biasingの実害があった）
+          result = await assessSpeech(wavBlob, {
+            mode: 'unscripted',
+            phraseHints: scenario
+              ? buildPhraseHints(scenario, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
+              : [],
+          });
+          paSeconds = Math.round(pcm.length / WHISPER_SAMPLE_RATE);
+        }
         const tPa = performance.now();
-        await addUsage(today, { paSeconds: Math.round(pcm.length / WHISPER_SAMPLE_RATE) });
+        await addUsage(today, { paSeconds });
 
         setLatency({
-          wavMs: Math.round(tWav - tStop),
-          paMs: Math.round(tPa - tWav),
+          wavMs,
+          paMs: Math.round(tPa - tPaStart),
           haikuFirstTextMs: -1,
           totalToSpeechMs: null,
+          paSource,
         });
 
         if (!result.recognizedText.trim()) {
@@ -492,8 +523,58 @@ export function useConversation(conversationId: string | undefined): UseConversa
     setHintLevel(next);
   }, []);
 
-  const markRecordStart = useCallback(() => {
+  // --- 録音開始時のストリーミング評価セッション開始（M11） ---
+  // キャップ判定を録音前に行い、上限時は録音自体を開始させない。セッション開始は
+  // awaitしない（beginVoiceCaptureが内部でPromiseを保持し、録音開始をブロックしない）。
+  const beginVoiceTurn = useCallback(async (): Promise<boolean> => {
+    const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
+    const usage = await getUsageDay(learningDate(new Date()));
+    if (!canRunPa(usage, caps)) {
+      setInfo('今日の発音評価の上限に達しました（設定で変更できます）。テキスト入力なら続けられます。');
+      return false;
+    }
+    setInfo(null);
     recordStartAtRef.current = Date.now();
+    // 録音〜評価〜AI応答の間、画面スリープでWebSocketが切れないよう先に取得する
+    // （多重acquireは冪等。releaseはsubmitVoice側のfinallyで従来どおり行われる）。
+    await wakeLockRef.current.acquire();
+    captureRef.current?.abort();
+    const sc = scenario;
+    captureRef.current = beginVoiceCapture({
+      mode: 'unscripted',
+      phraseHints: sc
+        ? buildPhraseHints(sc, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
+        : [],
+    });
+    return true;
+  }, [scenario]);
+
+  const beginKeyPhrase = useCallback(async (phraseEn: string): Promise<boolean> => {
+    const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
+    const usage = await getUsageDay(learningDate(new Date()));
+    if (!canRunPa(usage, caps)) {
+      setInfo('今日の発音評価の上限に達しました（設定で変更できます）。');
+      return false;
+    }
+    setInfo(null);
+    await wakeLockRef.current.acquire();
+    captureRef.current?.abort();
+    captureRef.current = beginVoiceCapture({
+      mode: 'scripted',
+      referenceText: phraseEn,
+      phraseHints: [phraseEn],
+    });
+    return true;
+  }, []);
+
+  const handleAudioChunk = useCallback((chunk: Float32Array, sampleRate: number) => {
+    captureRef.current?.onAudioChunk(chunk, sampleRate);
+  }, []);
+
+  const cancelVoiceCapture = useCallback(() => {
+    captureRef.current?.abort();
+    captureRef.current = null;
+    wakeLockRef.current.release();
   }, []);
 
   // --- キーフレーズ予習（lessonモード。scripted発音評価・AIターンは起こさない） ---
@@ -508,21 +589,30 @@ export function useConversation(conversationId: string | undefined): UseConversa
       try {
         setBusy('assessing');
         const today = learningDate(new Date());
-        const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
-        const usage = await getUsageDay(today);
-        if (!canRunPa(usage, caps)) {
-          setInfo('今日の発音評価の上限に達しました（設定で変更できます）。');
-          return null;
+
+        // ストリーミング評価（M11）: beginKeyPhraseで開始済みのセッションの確定を待つ。
+        // 日次キャップ判定は録音開始時（beginKeyPhrase）で実施済み。
+        const capture = captureRef.current;
+        captureRef.current = null;
+        let result: AssessSpeechResult | null = null;
+        let paSeconds = 0;
+        if (capture) {
+          result = await capture.finish();
+          if (result) paSeconds = Math.round(capture.audioSeconds());
         }
-        const pcm = await decodeToMono16k(recording.blob);
-        const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
-        // phraseHintsに参照文自身を渡し、参照文と認識テキストのズレを減らす（§6b）
-        const result = await assessSpeech(wavBlob, {
-          mode: 'scripted',
-          referenceText: phraseEn,
-          phraseHints: [phraseEn],
-        });
-        await addUsage(today, { paSeconds: Math.round(pcm.length / WHISPER_SAMPLE_RATE) });
+        if (!result) {
+          // batchフォールバック（従来経路）。
+          const pcm = await decodeToMono16k(recording.blob);
+          const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
+          // phraseHintsに参照文自身を渡し、参照文と認識テキストのズレを減らす（§6b）
+          result = await assessSpeech(wavBlob, {
+            mode: 'scripted',
+            referenceText: phraseEn,
+            phraseHints: [phraseEn],
+          });
+          paSeconds = Math.round(pcm.length / WHISPER_SAMPLE_RATE);
+        }
+        await addUsage(today, { paSeconds });
 
         if (result.pa.azureError) {
           setInfo(`発音評価でエラーが発生しました: ${result.pa.azureError}`);
@@ -601,7 +691,10 @@ export function useConversation(conversationId: string | undefined): UseConversa
     hintLevel,
     showNextHint,
     modelAnswersShown,
-    markRecordStart,
+    beginVoiceTurn,
+    beginKeyPhrase,
+    handleAudioChunk,
+    cancelVoiceCapture,
     submitVoice,
     submitText,
     finish,

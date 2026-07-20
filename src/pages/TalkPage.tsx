@@ -110,6 +110,9 @@ export function TalkPage() {
             scenario={conv.scenario}
             level={conv.level}
             busy={conv.busy !== 'idle'}
+            beginKeyPhrase={conv.beginKeyPhrase}
+            onAudioChunk={conv.handleAudioChunk}
+            cancelVoiceCapture={conv.cancelVoiceCapture}
             submitKeyPhrase={conv.submitKeyPhrase}
             onDone={() => void conv.beginDialogue()}
           />
@@ -161,7 +164,13 @@ export function TalkPage() {
             >
               ⌨️
             </button>
-            <MicButton disabled={busy} onRecordStart={conv.markRecordStart} onResult={(r) => void conv.submitVoice(r)} />
+            <MicButton
+              disabled={busy}
+              onRecordStart={conv.beginVoiceTurn}
+              onAudioChunk={conv.handleAudioChunk}
+              onResult={(r) => void conv.submitVoice(r)}
+              onAborted={conv.cancelVoiceCapture}
+            />
             <span className="w-9" />
           </div>
         ) : (
@@ -180,10 +189,12 @@ export function TalkPage() {
           </div>
         )}
 
-        {/* レイテンシログ（M3検収項目。目立たない小ささで常時表示） */}
+        {/* レイテンシログ（M3検収項目。目立たない小ささで常時表示。(S)=stream/(B)=batch） */}
         {conv.latency && (
           <p className="mt-2 text-center text-[10px] text-neutral-300">
-            wav {conv.latency.wavMs}ms / PA {conv.latency.paMs}ms / AI初文 {conv.latency.haikuFirstTextMs}ms
+            wav {conv.latency.wavMs}ms / PA {conv.latency.paMs}ms
+            {conv.latency.paSource ? `(${conv.latency.paSource === 'stream' ? 'S' : 'B'})` : ''} / AI初文{' '}
+            {conv.latency.haikuFirstTextMs}ms
             {conv.latency.totalToSpeechMs !== null && ` / 発話→音声 ${conv.latency.totalToSpeechMs}ms`}
           </p>
         )}

@@ -164,10 +164,18 @@ export function OnboardingPage() {
     goToQuestion(questionIndex - 1);
   };
 
-  /** 録音開始（MicButtonのonRecordStart）。iOSでの画面ロック対策にWake Lockを取得する（DESIGN.md §5）。 */
-  const handleRecordStart = () => {
-    void wakeLockRef.current.acquire();
+  /**
+   * 録音開始（MicButtonのonRecordStart）。iOSでの画面ロック対策にWake Lockを取得する（DESIGN.md §5）。
+   * 診断はストリーミング評価（M11）を使わずbatch経路のみ（3問だけで、自由発話が長く
+   * batch側の送信スロットル無効化の恩恵も受けるため）。常にtrue=録音許可。
+   */
+  const handleRecordStart = async (): Promise<boolean> => {
+    await wakeLockRef.current.acquire();
+    return true;
   };
+
+  /** 診断はストリーミング評価を使わないため、録音中PCMは破棄する。 */
+  const handleAudioChunk = () => {};
 
   /** 録音停止後の1問ぶんの処理: WAV変換→PA日次キャップ判定→unscripted発音評価（DESIGN.md §5, §8a）。 */
   const handleRecordResult = async (recording: RecordingResult) => {
@@ -468,7 +476,9 @@ export function OnboardingPage() {
               <MicButton
                 disabled={processingAnswer}
                 onRecordStart={handleRecordStart}
+                onAudioChunk={handleAudioChunk}
                 onResult={(recording) => void handleRecordResult(recording)}
+                onAborted={() => {}}
               />
               {processingAnswer && <p className="text-xs text-neutral-400">聞き取り中…</p>}
             </div>

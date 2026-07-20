@@ -1,28 +1,36 @@
 /**
  * push-to-talk のマイク大ボタン（DESIGN.md §5）。
- * タップで録音開始（thinkingMs計測のため onRecordStart を通知）、もう一度タップで停止し
- * RecordingResult を親（useConversation.submitVoice）へ渡す。
+ * タップで録音開始（onRecordStartがキャップ判定とストリーミング評価の開始を行う。
+ * falseが返ったら録音しない）、もう一度タップで停止し RecordingResult を
+ * 親（useConversation.submitVoice）へ渡す。録音中のPCMは onAudioChunk へ流れる（M11）。
  */
 
 import { useRecorder, type RecordingResult } from '../recorder/useRecorder';
 
 interface Props {
   disabled: boolean;
-  onRecordStart: () => void;
+  /** 録音開始前に呼ぶ。falseなら録音を開始しない（日次上限等）。 */
+  onRecordStart: () => Promise<boolean>;
+  /** 録音中のマイクPCM（ストリーミング評価用）。 */
+  onAudioChunk: (chunk: Float32Array, sampleRate: number) => void;
   onResult: (recording: RecordingResult) => void;
+  /** 録音が結果なしで終わった場合（OSによるマイク停止等）。 */
+  onAborted: () => void;
 }
 
-export function MicButton({ disabled, onRecordStart, onResult }: Props) {
-  const { isRecording, elapsedSec, level, error, start, stop } = useRecorder();
+export function MicButton({ disabled, onRecordStart, onAudioChunk, onResult, onAborted }: Props) {
+  const { isRecording, elapsedSec, level, error, start, stop } = useRecorder({ onAudioChunk });
 
   const handleTap = async () => {
     if (disabled) return;
     if (!isRecording) {
-      onRecordStart();
+      const ok = await onRecordStart();
+      if (!ok) return;
       await start();
     } else {
       const result = await stop();
       if (result) onResult(result);
+      else onAborted();
     }
   };
 
