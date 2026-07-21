@@ -67,10 +67,11 @@ describe('finishTimeoutMs', () => {
     expect(FINISH_TIMEOUT_NO_EVIDENCE_MS).toBeLessThan(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
   });
 
-  it('サルベージ前提でタイムアウトは短縮済み（体感~70秒→~5秒の要）', () => {
-    // 45秒は「タイムアウト待ち→batch再認識」で~70秒固まる原因だった。サルベージ導入により短縮。
-    expect(FINISH_TIMEOUT_WITH_EVIDENCE_MS).toBe(4_000);
+  it('タイムアウトは短縮済み（旧45秒→8秒。batchは自由会話で無力なため確定を粘って待つ）', () => {
+    // 45秒は「タイムアウト待ち→batch再認識」で~70秒固まる原因だった。8秒で見切り＋サルベージ。
+    expect(FINISH_TIMEOUT_WITH_EVIDENCE_MS).toBe(8_000);
     expect(FINISH_TIMEOUT_NO_EVIDENCE_MS).toBe(3_000);
+    expect(FINISH_TIMEOUT_WITH_EVIDENCE_MS).toBeLessThan(45_000);
   });
 });
 

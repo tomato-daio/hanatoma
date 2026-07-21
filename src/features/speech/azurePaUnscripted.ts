@@ -685,7 +685,8 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
     const today = learningDate(new Date());
     const cachedFallback = await config.getPaProsodyFallback();
     const guardActive = hasProsodyFailedInSession();
-    const skipProsody = guardActive || shouldSkipProsody(cachedFallback, region, today);
+    // 韻律は scripted のみ（§6a-2）。unscripted（自由会話）はF0で確定が遅いため無効化して高速化する。
+    const skipProsody = opts.mode === 'unscripted' || guardActive || shouldSkipProsody(cachedFallback, region, today);
 
     const errName = (e: unknown): string => (e instanceof Error ? e.name : String(e));
     let phrases: PhraseAssessment[];
@@ -693,7 +694,8 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
     let retried = false;
 
     if (skipProsody) {
-      const reason = guardActive ? 'セッションガード' : '当日キャッシュ';
+      const reason =
+        opts.mode === 'unscripted' ? '自由会話' : guardActive ? 'セッションガード' : '当日キャッシュ';
       console.info(`[azurePaUnscripted] ${reason}により韻律なしで直接実行します。`);
       const t1 = performance.now();
       try {

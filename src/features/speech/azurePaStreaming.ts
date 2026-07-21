@@ -114,10 +114,12 @@ export function prewarmSpeechSdk(): void {
 
 /**
  * 認識イベントを1件でも受けている（=セッションが生きている証拠あり）ときの確定待ち上限（DESIGN.md §6a-2）。
- * close→確定の正常値は約1.5秒。F0無料枠のゆらぎを見て4秒で見切り、**録音中に集めた部分結果を
- * サルベージして返す**（従来の45秒待ち→batch二重払いをやめ、体感を約70秒→約5秒に短縮する）。
+ * scripted（韻律あり短文）のclose→確定は<0.4s、unscripted（韻律なし会話）でも数秒で確定する見込み。
+ * 8秒で見切り、録音中に集めた部分結果があればサルベージして返す（旧45秒→batch二重払いの廃止）。
+ * batchフォールバックはF0では自由会話で60秒級と実測されており実質役に立たないため、ここで粘って
+ * 確定を待つ方がよい（全体は submitVoice の15秒デッドラインで必ず頭打ちになる）。
  */
-export const FINISH_TIMEOUT_WITH_EVIDENCE_MS = 4_000;
+export const FINISH_TIMEOUT_WITH_EVIDENCE_MS = 8_000;
 /** 認識イベントが1件も無い（=WS死亡の疑い）ときの確定待ち上限。ゼロチャンク即断もあるため短めでよい。 */
 export const FINISH_TIMEOUT_NO_EVIDENCE_MS = 3_000;
 
@@ -179,8 +181,13 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   if (!apiKey) throw new AzureSpeechKeyMissingError();
   const region = await config.getAzureSpeechRegion();
   const today = learningDate(new Date());
+  // 韻律（プロソディ）は scripted（キーフレーズ予習の短文）のみ有効にする（§6a-2）。
+  // unscripted（自由会話）は音声が長く、F0無料枠だと韻律採点で「close→確定」が音声長ぶん（7〜16秒）
+  // 遅延して「評価中」が長引くため無効化して高速化する（pron/accuracy/fluencyの主要スコアは維持）。
   const skipProsody =
-    hasProsodyFailedInSession() || shouldSkipProsody(await config.getPaProsodyFallback(), region, today);
+    opts.mode === 'unscripted' ||
+    hasProsodyFailedInSession() ||
+    shouldSkipProsody(await config.getPaProsodyFallback(), region, today);
 
   const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(apiKey, region);
   speechConfig.speechRecognitionLanguage = 'en-US';
