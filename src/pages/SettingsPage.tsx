@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { AnthropicSection } from '../features/settings/AnthropicSection';
 import { AppInfoSection } from '../features/settings/AppInfoSection';
 import { AzureSpeechSection } from '../features/settings/AzureSpeechSection';
@@ -40,6 +41,19 @@ export function SettingsPage() {
 
       <CollapsibleSection title="アプリ情報">
         <AppInfoSection />
+      </CollapsibleSection>
+
+      <CollapsibleSection title="診断・セルフテスト" description="発音評価が遅い・失敗するときの実行ログを確認">
+        <p className="text-xs text-neutral-500">
+          発音評価（stream/batch）の実行経過・失敗理由や、録音・認識・TTSの単体テストを確認できます。
+          iPhoneのホーム画面アプリからでもここから開けます。
+        </p>
+        <Link
+          to="/selftest"
+          className="mt-2 inline-block rounded-full bg-hana-500 px-4 py-2 text-sm font-semibold text-white active:bg-hana-600"
+        >
+          診断ログ・セルフテストを開く →
+        </Link>
       </CollapsibleSection>
 
       {import.meta.env.DEV ? (
