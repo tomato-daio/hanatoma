@@ -59,12 +59,14 @@ describe('computeLessonMetrics', () => {
     expect(metrics.thinkingTimeMs).toBe(0);
     expect(metrics.meanUtteranceWords).toBe(0);
     expect(Number.isFinite(metrics.composite)).toBe(true);
-    expect(metrics.composite).toBeCloseTo(50, 5); // grammar満点(100)*0.3 + fluency満点(100)*0.2
+    // 発音データ無し→pron重みを残り成分へ再配分: grammar100*(0.3/0.7)+fluency100*(0.2/0.7)=71.43
+    expect(metrics.composite).toBeCloseTo(71.42857, 4);
   });
 
   it('turns配列が空でも安全に動く', () => {
     const metrics = computeLessonMetrics([], 0);
-    expect(metrics.composite).toBeCloseTo(50, 5);
+    // 発音データ無しの再配分（grammar/fluency満点、complexity0）で71.43
+    expect(metrics.composite).toBeCloseTo(71.42857, 4);
   });
 
   it('ユーザー総語数0（空文字テキストのみ）ならgrammarErrorRateは0', () => {
@@ -77,6 +79,21 @@ describe('computeLessonMetrics', () => {
     const turns: Turn[] = [userTurn('hello there', { pa: makePa(60) }), userTurn('hi again')];
     const metrics = computeLessonMetrics(turns, 0);
     expect(metrics.pronScore).toBe(60);
+  });
+
+  it('発音データが1件でもあれば通常加重（pron重み0.3）のまま（再配分しない）', () => {
+    // pron=90(1件), grammar=100(誤り0), fluency=100(1000ms), complexity=100(12語)
+    // composite = 0.3*90 + 0.3*100 + 0.2*100 + 0.2*100 = 27+30+20+20 = 97
+    const turns: Turn[] = [userTurn('a b c d e f g h i j k l', { pa: makePa(90), thinkingMs: 1000 })];
+    const metrics = computeLessonMetrics(turns, 0);
+    expect(metrics.composite).toBeCloseTo(97, 5);
+  });
+
+  it('発音データが無いと再配分され、他成分満点でcompositeが100に達する（昇格ライン到達可能）', () => {
+    // 従来は pron=0 を 0.3 の重みで足して頭打ち70。再配分後は 100 になり昇格ライン75へ届く。
+    const turns: Turn[] = [userTurn('a b c d e f g h i j k l', { thinkingMs: 1000 })];
+    const metrics = computeLessonMetrics(turns, 0);
+    expect(metrics.composite).toBeCloseTo(100, 5);
   });
 
   it('thinkingMs未定義のターンは中央値計算から除外される', () => {
@@ -92,23 +109,25 @@ describe('computeLessonMetrics', () => {
   it('fluencyComponent: 思考時間2000ms以下は満点(100)', () => {
     const turns: Turn[] = [userTurn('a b c d e f g h i j k l', { thinkingMs: 1000 })];
     const metrics = computeLessonMetrics(turns, 0);
-    // complexity満点(12語) + fluency満点(100) → composite = 0.2*100 + 0.2*100 + grammar0.3*100 = 20+20+30=70
-    expect(metrics.composite).toBeCloseTo(70, 5);
+    // 発音データ無し（テキスト入力）→pron重み再配分。grammar/fluency/complexityすべて満点なので composite=100
+    expect(metrics.composite).toBeCloseTo(100, 5);
   });
 
   it('fluencyComponent: 思考時間10000ms以上は0点', () => {
     const turns: Turn[] = [userTurn('a', { thinkingMs: 15000 })];
     const metrics = computeLessonMetrics(turns, 0);
-    // meanUtteranceWords=1語→complexity=0, thinkingTimeMs=15000→fluency=0
-    // composite = 0.3*0(pron) + 0.3*100(grammar) + 0.2*0(fluency) + 0.2*0(complexity) = 30
-    expect(metrics.composite).toBeCloseTo(30, 5);
+    // meanUtteranceWords=1語→complexity=0, thinkingTimeMs=15000→fluency=0, grammar=100
+    // 発音データ無し→再配分: grammar100*(0.3/0.7)=42.86
+    expect(metrics.composite).toBeCloseTo(42.85714, 4);
   });
 
   it('complexityComponent: 平均語数2語以下は0点、12語以上は満点', () => {
     const low = computeLessonMetrics([userTurn('a b', { thinkingMs: 2000 })], 0);
     const high = computeLessonMetrics([userTurn('a b c d e f g h i j k l m', { thinkingMs: 2000 })], 0);
-    expect(low.composite).toBeCloseTo(0.3 * 100 + 0.2 * 100 + 0.2 * 0, 5); // grammar100+fluency100+complexity0
-    expect(high.composite).toBeCloseTo(0.3 * 100 + 0.2 * 100 + 0.2 * 100, 5);
+    // 発音データ無し→再配分。low: grammar100+fluency100+complexity0 を /0.7 で正規化=71.43
+    expect(low.composite).toBeCloseTo(71.42857, 4);
+    // high: すべて満点なので100
+    expect(high.composite).toBeCloseTo(100, 5);
   });
 
   it('中央値は偶数件でも正しく計算する', () => {

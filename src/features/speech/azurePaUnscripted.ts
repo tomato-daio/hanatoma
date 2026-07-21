@@ -63,6 +63,11 @@ export interface AssessSpeechOptions {
    * 発音スコアには直接影響せず、認識テキストの文脈補助のみ。空・未指定なら何もしない。
    */
   phraseHints?: string[];
+  /**
+   * 全体デッドライン（submitVoice）からの中断シグナル。中断されると認識を停止して即時打ち切り、
+   * azureError入りの空PaResultで返る（会話は継続する）。
+   */
+  signal?: AbortSignal;
 }
 
 export interface AssessSpeechResult {
@@ -385,8 +390,12 @@ export function makeFailurePaResult(mode: 'unscripted' | 'scripted', err: unknow
   };
 }
 
-/** continuous recognitionの終了待ちタイムアウト（60秒超音声も考慮した余裕のある値）。 */
-const RECOGNITION_TIMEOUT_MS = 120_000;
+/**
+ * continuous recognitionの終了待ちタイムアウト。会話の1発話は長くても数十秒で、送信ペーシングも
+ * 無効化済みのため、失敗中のbatchが長時間ハングしないよう控えめにする（呼び出し側=submitVoiceの
+ * 全体デッドラインの内側に収まる値）。
+ */
+const RECOGNITION_TIMEOUT_MS = 20_000;
 
 /** このファイル内でのみ使う、動的importしたSDKモジュール名前空間の型。 */
 type AzureSpeechSDK = typeof import('microsoft-cognitiveservices-speech-sdk');
@@ -461,6 +470,8 @@ async function recognizeOnce(
     phraseHints: string[];
     apiKey: string;
     region: string;
+    /** 全体デッドライン（submitVoice）からの中断シグナル。中断時は停止して即時打ち切る。 */
+    signal?: AbortSignal;
   },
 ): Promise<PhraseAssessment[]> {
   const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(opts.apiKey, opts.region);
@@ -513,9 +524,27 @@ async function recognizeOnce(
         if (settled) return;
         settled = true;
         if (timeoutId !== undefined) clearTimeout(timeoutId);
+        opts.signal?.removeEventListener('abort', onAbort);
         if (err && !recognitionError) recognitionError = err;
         resolve();
       };
+
+      // 全体デッドライン（submitVoice）からの中断: 停止を試み、タイムアウト同等で打ち切る
+      // （F0の1本しかないWSを次ターンのために解放する。放置すると失敗連鎖の原因になる）。
+      const onAbort = () => {
+        swallowTeardownError('stopContinuousRecognitionAsync（abort時）', () => {
+          recognizer.stopContinuousRecognitionAsync(
+            () => {},
+            () => {},
+          );
+        });
+        finish(new AzurePronunciationTimeoutError());
+      };
+      if (opts.signal?.aborted) {
+        onAbort();
+        return;
+      }
+      opts.signal?.addEventListener('abort', onAbort);
 
       timeoutId = setTimeout(() => {
         // タイムアウト時も停止は試みるが、stop自体の失敗（iOS Safariの既知バグ等）は握りつぶし、
@@ -648,6 +677,7 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
       phraseHints: (opts.phraseHints ?? []).map((h) => h.trim()).filter((h) => h.length > 0),
       apiKey,
       region,
+      signal: opts.signal,
     };
 
     // 韻律非対応の当日キャッシュ + セッション内ガード（DESIGN.md §6a）: フォールバック実績が

@@ -30,6 +30,20 @@ const COMPOSITE_WEIGHTS = {
   complexity: 0.2,
 } as const;
 
+/**
+ * 発音データが無いセッション用に、pronの重み(0.3)を残り3成分へ比例配分した加重（合計1）を返す純関数。
+ * grammar/fluency/complexity の比 0.3:0.2:0.2 を保ったまま正規化する（DESIGN.md §8b）。
+ */
+function reweightWithoutPron(): { pron: number; grammar: number; fluency: number; complexity: number } {
+  const rest = COMPOSITE_WEIGHTS.grammar + COMPOSITE_WEIGHTS.fluency + COMPOSITE_WEIGHTS.complexity;
+  return {
+    pron: 0,
+    grammar: COMPOSITE_WEIGHTS.grammar / rest,
+    fluency: COMPOSITE_WEIGHTS.fluency / rest,
+    complexity: COMPOSITE_WEIGHTS.complexity / rest,
+  };
+}
+
 function average(values: number[]): number {
   if (values.length === 0) return 0;
   return values.reduce((sum, v) => sum + v, 0) / values.length;
@@ -92,11 +106,16 @@ export function computeLessonMetrics(turns: Turn[], grammarErrorCount: number): 
     100,
   );
 
+  // 発音データの有無で加重を切り替える（DESIGN.md §8b）。音声スコアが1件も無いセッション
+  // （テキスト入力のみ・発音評価スキップ等）でpron=0を0.3の重みで足すと、他が満点でも
+  // composite上限が70になり昇格ライン75へ永久に届かない。pronの重みを残り成分へ比例配分して
+  // 再正規化し、取得できた指標だけで公平に採点する。
+  const weights = pronScores.length > 0 ? COMPOSITE_WEIGHTS : reweightWithoutPron();
   const composite =
-    COMPOSITE_WEIGHTS.pron * pronScore +
-    COMPOSITE_WEIGHTS.grammar * grammarComponent +
-    COMPOSITE_WEIGHTS.fluency * fluencyComponent +
-    COMPOSITE_WEIGHTS.complexity * complexityComponent;
+    weights.pron * pronScore +
+    weights.grammar * grammarComponent +
+    weights.fluency * fluencyComponent +
+    weights.complexity * complexityComponent;
 
   return {
     pronScore,

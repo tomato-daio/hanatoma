@@ -7,11 +7,14 @@
 import { useEffect, useState } from 'react';
 import { BadgeShelf } from '../features/game/BadgeShelf';
 import { buildStreakInfo, loadSisterData } from '../features/game/homeData';
+import { LevelUpProgress } from '../features/game/LevelUpProgress';
+import { loadPromoteProgress } from '../features/game/levelProgress';
 import { getReviewDates } from '../features/review/reviewStore';
 import { getUserProfile, listConversations } from '../lib/db';
 import { learningDate } from '../lib/dates';
 import { RANK_NAMES, rankFromXp, xpForRank } from '../lib/game/xp';
 import { getLevelParams } from '../lib/level/params';
+import type { PromoteProgress } from '../lib/level/progress';
 import type { Conversation, UserProfile } from '../lib/types';
 
 const CALENDAR_WEEKS = 8;
@@ -30,6 +33,7 @@ interface ProgressData {
   shadotomaDates: string[];
   reviewDates: string[];
   ticketDays: string[];
+  promoteProgress: PromoteProgress;
 }
 
 // dates.tsは前日/翌日計算をexportしていないため、カレンダー用の単純な暦日加算のみここに複製する
@@ -105,8 +109,17 @@ export function ProgressPage() {
         ];
         const shadotomaDates = sisterData?.practiceDates ?? [];
         const streak = buildStreakInfo(hanatomaDates, shadotomaDates, profile.restTickets, today);
+        const promoteProgress = await loadPromoteProgress(conversations, profile.level);
+        if (cancelled) return;
 
-        setData({ profile, conversations, shadotomaDates, reviewDates, ticketDays: streak.usedOn });
+        setData({
+          profile,
+          conversations,
+          shadotomaDates,
+          reviewDates,
+          ticketDays: streak.usedOn,
+          promoteProgress,
+        });
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : '進捗の読み込みに失敗しました。');
       }
@@ -134,7 +147,7 @@ export function ProgressPage() {
     );
   }
 
-  const { profile, conversations, shadotomaDates, reviewDates, ticketDays } = data;
+  const { profile, conversations, shadotomaDates, reviewDates, ticketDays, promoteProgress } = data;
 
   const rank = rankFromXp(profile.xp);
   const rankName = RANK_NAMES[rank];
@@ -197,6 +210,13 @@ export function ProgressPage() {
           AIの調整: 話す速さは{levelParams.ttsRateLabelJa}・日本語サポートは
           {levelParams.japaneseSupportLabel}
         </p>
+
+        {/* 昇格プログレス（DESIGN.md §8d）: 「いつレベルが上がるか」を可視化する */}
+        <div className="mt-3 rounded-xl bg-hana-50 px-3 py-2">
+          <p className="text-xs font-bold text-neutral-700">レベルアップまで</p>
+          <LevelUpProgress progress={promoteProgress} className="mt-1.5" />
+        </div>
+
         {sortedHistory.length > 0 ? (
           <ul className="mt-2 flex flex-col gap-1">
             {sortedHistory.slice(0, 5).map((h, idx) => (

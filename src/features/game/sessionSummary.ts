@@ -6,6 +6,8 @@
  * この形へ組み立てるのは後工程の「セッション終了パイプライン」の責務（このファイルはその契約のみ）。
  */
 
+import type { PromoteProgress } from '../../lib/level/progress';
+
 export interface SessionSummary {
   xp: number;
   xpBreakdown: { label: string; amount: number }[];
@@ -21,4 +23,12 @@ export interface SessionSummary {
     done: boolean;
   }[];
   streak: number;
+  /** 採点付き（lesson/quick/boss）セッションか。昇格プログレス表示の出し分けに使う。 */
+  graded: boolean;
+  /** このレッスンの総合スコア（composite, 0-100）。 */
+  composite: number;
+  /** このレッスンが昇格判定の対象（プレイ時レベル以上の難易度）だったか。 */
+  promotionEligible: boolean;
+  /** 更新後の昇格プログレス（ドット表示用。§8d）。 */
+  promoteProgress: PromoteProgress;
 }

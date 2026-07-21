@@ -6,14 +6,18 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { BADGE_CATALOG } from './BadgeShelf';
+import { LevelUpProgress } from './LevelUpProgress';
 import type { SessionSummary } from './sessionSummary';
+
+/** 昇格ライン（PROMOTE_THRESHOLD）。表示用のためここでも定数を持つ。 */
+const PROMOTE_LINE = 75;
 
 interface RewardScreenProps {
   summary: SessionSummary;
   onClose: () => void;
 }
 
-type StageKind = 'xp' | 'stars' | 'expressions' | 'badges' | 'level' | 'quests';
+type StageKind = 'xp' | 'stars' | 'promotion' | 'expressions' | 'badges' | 'level' | 'quests';
 
 const STAR_LABEL: Record<0 | 1 | 2 | 3, string> = { 0: '―', 1: '★', 2: '★★', 3: '★★★' };
 /** 段階の自動進行間隔(ms)。「全表示」ボタンでいつでも一気に飛ばせる。 */
@@ -39,6 +43,8 @@ function FadeInStage({ children }: { children: ReactNode }) {
 
 function buildStages(summary: SessionSummary): StageKind[] {
   const stages: StageKind[] = ['xp', 'stars'];
+  // 採点付きセッションのみ「昇格の進み」を出す（bite等は対象外）。
+  if (summary.graded) stages.push('promotion');
   if (summary.newExpressions.length > 0) stages.push('expressions');
   if (summary.newBadgeIds.length > 0) stages.push('badges');
   if (summary.levelChange) stages.push('level');
@@ -86,6 +92,27 @@ export function RewardScreen({ summary, onClose }: RewardScreenProps) {
               <section className="mt-4 text-center">
                 <p className="text-sm font-bold text-neutral-800">今回の評価</p>
                 <p className="mt-1 text-4xl">{STAR_LABEL[summary.stars]}</p>
+              </section>
+            )}
+
+            {stage === 'promotion' && (
+              <section className="mt-4">
+                <p className="text-sm font-bold text-neutral-800">レベルアップの進み</p>
+                <p className="mt-1 text-xs text-neutral-600">
+                  このレッスンの総合スコア: <span className="font-bold">{Math.round(summary.composite)}点</span>
+                </p>
+                {summary.promotionEligible ? (
+                  <p className="mt-0.5 text-xs text-neutral-500">
+                    {summary.composite >= PROMOTE_LINE
+                      ? `昇格ライン(${PROMOTE_LINE}点)クリア ✓`
+                      : `昇格ライン(${PROMOTE_LINE}点)まであと${Math.max(1, Math.ceil(PROMOTE_LINE - summary.composite))}点`}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-[11px] text-neutral-400">
+                    ※このレッスンは昇格判定の対象外（現レベル以上の難易度が対象）
+                  </p>
+                )}
+                <LevelUpProgress progress={summary.promoteProgress} className="mt-2" />
               </section>
             )}
 

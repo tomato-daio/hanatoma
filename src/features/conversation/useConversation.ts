@@ -48,6 +48,13 @@ import { beginVoiceCapture, type VoiceCaptureHandle } from './voiceCapture';
 
 export type ConversationBusy = 'idle' | 'assessing' | 'thinking' | 'speaking';
 
+/**
+ * 発音評価（streaming確定 + batchフォールバック）の合計待ちの全体上限（DESIGN.md §6a-2）。
+ * これを超えたら in-flight の認識を abort して会話を止めない。streaming finish は短いタイムアウトで
+ * 自律的に確定するため、実質は batch フォールバックの保険（batch側 RECOGNITION_TIMEOUT の内側で発火）。
+ */
+const PA_DEADLINE_MS = 15_000;
+
 /** 直近ターンのレイテンシ計測（DESIGN.md §5。M3の検収項目）。 */
 export interface TurnLatency {
   wavMs: number;
@@ -397,12 +404,18 @@ export function useConversation(conversationId: string | undefined): UseConversa
       setInfo(null);
       const wakeLock = wakeLockRef.current;
       await wakeLock.acquire();
+      // 全体デッドライン（DESIGN.md §6a-2）: streaming確定+batchの合計が長時間ブロックしないよう
+      // 上限を設ける。発火時は in-flight の認識を確実に abort して F0 のWSを解放する（race敗者放置に
+      // よる失敗連鎖の防止）。
+      const paDeadline = new AbortController();
+      const deadlineId = window.setTimeout(() => paDeadline.abort(), PA_DEADLINE_MS);
       try {
         const tStop = performance.now();
         setBusy('assessing');
         const today = learningDate(new Date());
 
         // ストリーミング評価（M11）: 録音中に進めた認識の確定を待つ。失敗はnull→batchへ。
+        // タイムアウトでも録音中の部分結果があればサルベージして返る（azurePaStreaming.finish）。
         // 日次キャップ判定は録音開始時（beginVoiceTurn）で実施済み。
         const capture = captureRef.current;
         captureRef.current = null;
@@ -412,13 +425,18 @@ export function useConversation(conversationId: string | undefined): UseConversa
         let wavMs = 0;
         let tPaStart = tStop;
         if (capture) {
-          result = await capture.finish();
+          try {
+            result = await capture.finish();
+          } finally {
+            // デッドライン発火済みなら残りの認識セッションを確実に破棄する。
+            if (paDeadline.signal.aborted) capture.abort();
+          }
           if (result) paSeconds = Math.round(capture.audioSeconds());
         }
 
-        if (!result) {
+        if (!result && !paDeadline.signal.aborted) {
           // batchフォールバック（従来経路）: 録音Blob全体をWAV化して一括評価する。
-          // Azure失敗時は例外ではなくpa.azureErrorで返る契約。
+          // Azure失敗時は例外ではなくpa.azureErrorで返る契約。デッドラインのsignalで中断可能。
           paSource = 'batch';
           const tDecode = performance.now();
           const pcm = await decodeToMono16k(recording.blob);
@@ -432,6 +450,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
             phraseHints: scenario
               ? buildPhraseHints(scenario, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
               : [],
+            signal: paDeadline.signal,
           });
           paSeconds = Math.round(pcm.length / WHISPER_SAMPLE_RATE);
         }
@@ -446,12 +465,14 @@ export function useConversation(conversationId: string | undefined): UseConversa
           paSource,
         });
 
-        if (!result.recognizedText.trim()) {
+        if (!result || !result.recognizedText.trim()) {
           setBusy('idle');
           setInfo(
-            result.pa.azureError
-              ? `発音評価でエラーが発生しました: ${result.pa.azureError}`
-              : '聞き取れませんでした。もう一度はっきり話してみてください。',
+            paDeadline.signal.aborted
+              ? '発音評価が時間内に完了しませんでした。通信状況を確認して、もう一度お試しください。'
+              : result?.pa.azureError
+                ? `発音評価でエラーが発生しました: ${result.pa.azureError}`
+                : '聞き取れませんでした。もう一度はっきり話してみてください。',
           );
           return;
         }
@@ -477,6 +498,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
         setBusy('idle');
         setError(e instanceof Error ? e.message : '音声の処理に失敗しました。');
       } finally {
+        window.clearTimeout(deadlineId);
         wakeLock.release();
         processingRef.current = false;
       }

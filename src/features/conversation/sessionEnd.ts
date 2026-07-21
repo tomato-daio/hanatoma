@@ -23,7 +23,7 @@ import {
 } from '../../lib/db';
 import { learningDate } from '../../lib/dates';
 import { computeLessonMetrics } from '../../lib/level/metrics';
-import { applyLevelProgress, type RecentLessonRecord } from '../../lib/level/progress';
+import { applyLevelProgress, computePromoteProgress, type RecentLessonRecord } from '../../lib/level/progress';
 import { evaluateBadges } from '../../lib/game/badges';
 import {
   applyQuestEvent,
@@ -198,12 +198,15 @@ export async function runSessionEnd(
   };
   await putConversation(completedConversation);
 
-  // レベル昇降格: 直近5件のlesson/quick/bossレッスン（本セッション含む）
+  // レベル昇降格の判定材料（本セッション含む）。applyLevelProgress は内部で
+  // 「現レベル以上をフィルタ→直近5件」（昇格）／「直近5件（レベル問わず）」（降格）を行うため、
+  // ここでは十分広い窓（直近20件）を渡す。5件しか渡さないと『直近5件が全て現レベル以上』でないと
+  // 昇格判定が発動せず、復習で下位レベルを1回挟むだけで昇格がリセットされてしまう（DESIGN.md §8c）。
   const gradedModes = new Set(['lesson', 'quick', 'boss']);
   const recentConvs = (await listConversations())
     .filter((c) => c.status === 'completed' && gradedModes.has(c.mode) && c.metrics)
     .sort((a, b) => b.startedAt - a.startedAt)
-    .slice(0, 5);
+    .slice(0, 20);
   const recentLessons: RecentLessonRecord[] = [];
   for (const c of recentConvs) {
     const s = c.scenarioId === scenario.id ? scenario : await getScenarioById(c.scenarioId);
@@ -221,6 +224,11 @@ export async function runSessionEnd(
       { date: today, level: levelResult.level, reason: levelResult.change },
     ];
   }
+
+  // 昇格プログレス（§8d）: 更新後レベルでの「あと何回で昇格か」をRewardScreenに出す。
+  // promotionEligibleは、このレッスンが昇格判定の対象（プレイ時レベル以上の難易度）だったか。
+  const promoteProgress = computePromoteProgress(updatedProfile.level, recentLessons);
+  const promotionEligible = scenario.level >= profile.level;
 
   // バッジ判定（evaluateBadgesは新規獲得idの配列を返す。earnedAtはここで付与）
   const expressions = await listExpressions();
@@ -252,6 +260,10 @@ export async function runSessionEnd(
       done: q.done,
     })),
     streak: streakInfo.streak,
+    graded: wantsReport,
+    composite: metrics.composite,
+    promotionEligible,
+    promoteProgress,
   };
 
   return { summary, report, ...(reportError !== undefined ? { reportError } : {}) };

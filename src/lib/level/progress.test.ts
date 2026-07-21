@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyLevelProgress, type RecentLessonRecord } from './progress';
+import { applyLevelProgress, computePromoteProgress, type RecentLessonRecord } from './progress';
 import type { AppLevel, UserProfile } from '../types';
 
 function makeProfile(level: AppLevel, levelHistory: UserProfile['levelHistory'] = []): UserProfile {
@@ -213,5 +213,74 @@ describe('applyLevelProgress', () => {
     ];
     const result = applyLevelProgress(profile, lessons, TODAY);
     expect(result).toEqual({ level: 3, change: 'promote' });
+  });
+
+  it('復習（下位レベル）を最新に1回挟んでも、現レベル以上が5件あれば昇格する（窓拡大の要件）', () => {
+    // sessionEndが直近5件しか渡さなかった旧実装では、最新の復習1件で母集団が5件未満になり昇格が
+    // 発動しなかった。窓を広げて渡せば（本テストのように）本来の「現レベル以上5件中4件≥75」が生きる。
+    const profile = makeProfile(2);
+    const lessons = [
+      lesson('2026-07-20', 1, 30), // ← 最新は下位レベルの復習（対象外）
+      lesson('2026-07-19', 2, 80),
+      lesson('2026-07-18', 2, 80),
+      lesson('2026-07-17', 2, 80),
+      lesson('2026-07-16', 2, 80),
+      lesson('2026-07-15', 2, 40),
+    ];
+    const result = applyLevelProgress(profile, lessons, TODAY);
+    expect(result).toEqual({ level: 3, change: 'promote' });
+  });
+});
+
+describe('computePromoteProgress', () => {
+  it('現レベル以上・直近5件のうち75以上の件数（ヒット）を数える', () => {
+    const p = computePromoteProgress(2, [
+      lesson('2026-07-20', 2, 80),
+      lesson('2026-07-19', 2, 70),
+      lesson('2026-07-18', 2, 90),
+      lesson('2026-07-17', 2, 60),
+      lesson('2026-07-16', 2, 40),
+    ]);
+    expect(p).toMatchObject({ slots: 5, windowSize: 5, hits: 2, needed: 4, threshold: 75, isMaxLevel: false });
+    expect(p.remaining).toBe(2); // あと2件75以上で4/5
+  });
+
+  it('現レベル未満のレッスンは母集団から除外する', () => {
+    const p = computePromoteProgress(3, [
+      lesson('2026-07-20', 1, 100), // 対象外
+      lesson('2026-07-19', 2, 100), // 対象外
+      lesson('2026-07-18', 3, 80),
+      lesson('2026-07-17', 3, 80),
+    ]);
+    expect(p.windowSize).toBe(2);
+    expect(p.hits).toBe(2);
+    // 窓が5件に満たない: あと3件（現レベル以上）必要 → remaining=max(4-2, 5-2)=3
+    expect(p.remaining).toBe(3);
+  });
+
+  it('4件ヒットで昇格目前（remaining=0）', () => {
+    const p = computePromoteProgress(2, [
+      lesson('2026-07-20', 2, 80),
+      lesson('2026-07-19', 2, 80),
+      lesson('2026-07-18', 2, 80),
+      lesson('2026-07-17', 2, 80),
+      lesson('2026-07-16', 2, 40),
+    ]);
+    expect(p.hits).toBe(4);
+    expect(p.remaining).toBe(0);
+  });
+
+  it('レベル上限(5)ではisMaxLevel=trueかつremaining=0', () => {
+    const p = computePromoteProgress(5, [
+      lesson('2026-07-20', 5, 90),
+      lesson('2026-07-19', 5, 90),
+    ]);
+    expect(p.isMaxLevel).toBe(true);
+    expect(p.remaining).toBe(0);
+  });
+
+  it('データが無ければwindowSize=0・hits=0（remainingは窓を満たす5件）', () => {
+    const p = computePromoteProgress(2, []);
+    expect(p).toMatchObject({ windowSize: 0, hits: 0, remaining: 5 });
   });
 });

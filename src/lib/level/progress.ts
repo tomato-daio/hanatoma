@@ -21,9 +21,9 @@ export interface LevelProgressResult {
   change: 'promote' | 'demote' | null;
 }
 
-const PROMOTE_LOOKBACK = 5;
-const PROMOTE_MIN_HITS = 4;
-const PROMOTE_THRESHOLD = 75;
+export const PROMOTE_LOOKBACK = 5;
+export const PROMOTE_MIN_HITS = 4;
+export const PROMOTE_THRESHOLD = 75;
 
 const DEMOTE_LOOKBACK = 5;
 const DEMOTE_THRESHOLD = 50;
@@ -90,4 +90,53 @@ export function applyLevelProgress(
   }
 
   return { level: currentLevel, change: null };
+}
+
+/** 昇格プログレス（Home/Progress表示用。DESIGN.md §8d）。 */
+export interface PromoteProgress {
+  /** レベル上限(5)で昇格余地が無いか。 */
+  isMaxLevel: boolean;
+  /** ドット表示の総数（=PROMOTE_LOOKBACK）。 */
+  slots: number;
+  /** 現レベル以上の直近レッスンのうち判定窓に入った件数（0〜slots）。埋まっていない分は「判定未開始」。 */
+  windowSize: number;
+  /** 判定窓の中で composite≥閾値 だったヒット数（点灯ドット数）。 */
+  hits: number;
+  /** 昇格に必要なヒット数（=PROMOTE_MIN_HITS）。 */
+  needed: number;
+  /** 昇格ライン（=PROMOTE_THRESHOLD）。 */
+  threshold: number;
+  /**
+   * 昇格まで「あと何回（現レベル以上で）75点以上が要るか」の保守的な目安。
+   * 「不足ヒット数」と「窓を満たすのに足りない件数」の大きい方。上限レベルでは0。
+   */
+  remaining: number;
+}
+
+/**
+ * profile.levelとrecentLessonsから昇格プログレスを算出する純関数（Vitest対象）。
+ * applyLevelProgressの昇格判定と同じ母集団（現レベル以上・直近PROMOTE_LOOKBACK件）を見る。
+ */
+export function computePromoteProgress(
+  currentLevel: AppLevel,
+  recentLessons: RecentLessonRecord[],
+): PromoteProgress {
+  const isMaxLevel = currentLevel >= MAX_LEVEL;
+  const window = sortByDateDesc(recentLessons.filter((l) => l.scenarioLevel >= currentLevel)).slice(
+    0,
+    PROMOTE_LOOKBACK,
+  );
+  const hits = window.filter((l) => l.composite >= PROMOTE_THRESHOLD).length;
+  const remaining = isMaxLevel
+    ? 0
+    : Math.max(0, Math.max(PROMOTE_MIN_HITS - hits, PROMOTE_LOOKBACK - window.length));
+  return {
+    isMaxLevel,
+    slots: PROMOTE_LOOKBACK,
+    windowSize: window.length,
+    hits,
+    needed: PROMOTE_MIN_HITS,
+    threshold: PROMOTE_THRESHOLD,
+    remaining,
+  };
 }

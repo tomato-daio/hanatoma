@@ -9,14 +9,18 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { startConversation } from '../features/conversation/startConversation';
 import { buildHomeData, type HomeData } from '../features/game/homeData';
+import { LevelUpProgress } from '../features/game/LevelUpProgress';
+import { loadPromoteProgress } from '../features/game/levelProgress';
 import { QuestList } from '../features/game/QuestList';
 import { getQuestDescription } from '../lib/game/quests';
 import { getLevelParams } from '../lib/level/params';
+import type { PromoteProgress } from '../lib/level/progress';
 import type { ConversationMode } from '../lib/types';
 
 export function HomePage() {
   const navigate = useNavigate();
   const [data, setData] = useState<HomeData | null>(null);
+  const [promoteProgress, setPromoteProgress] = useState<PromoteProgress | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
 
@@ -25,7 +29,11 @@ export function HomePage() {
     void (async () => {
       try {
         const result = await buildHomeData();
-        if (!cancelled) setData(result);
+        if (cancelled) return;
+        setData(result);
+        // 昇格プログレス（§8d）。表示専用なので失敗してもホーム全体は壊さない。
+        const progress = await loadPromoteProgress(result.conversations, result.profile.level);
+        if (!cancelled) setPromoteProgress(progress);
       } catch (e: unknown) {
         if (!cancelled) setMessage(e instanceof Error ? e.message : 'ホームデータの読み込みに失敗しました。');
       }
@@ -91,6 +99,7 @@ export function HomePage() {
           </p>
           <p className="text-xs text-neutral-400">目安をみる →</p>
         </Link>
+        {promoteProgress ? <LevelUpProgress progress={promoteProgress} className="mt-2" /> : null}
       </section>
 
       {/* 今日のレッスン（主導線。§4: 1日1本・5〜10分で完結） */}

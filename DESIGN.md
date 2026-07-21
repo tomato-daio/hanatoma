@@ -230,10 +230,13 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
   → lib/pcm.ts: 線形補間ダウンサンプル(実レート→16k・チャンク境界持ち越し) → PCM16
   → azurePaStreaming: SDK事前warm済→WS事前接続→continuous認識へ逐次push
 [録音停止] session.finish(): pushStream.close → 確定結果（体感1〜2秒）
-  失敗時（韻律初回失敗/接続断/結果ゼロ/適応タイムアウト=認識イベントありなら45s・なければ10s）は
-  録音Blobから従来のbatch経路（decodeToMono16k→WAV→assessSpeech）へ自動フォールバック。
+  タイムアウト（適応=認識イベントありなら4s・なければ3s）でも、録音中に集めた部分フレーズがあり
+  末尾を大きく取りこぼしていなければサルベージして返す（§6a-2。旧45s待ち→batch二重払いを廃し
+  体感~70秒→~5秒）。韻律初回失敗/接続断/結果ゼロ/サルベージ不可時のみ、録音Blobから従来のbatch経路
+  （decodeToMono16k→WAV→assessSpeech）へ自動フォールバック。
   PCMチャンクが1件も届いていない場合（worklet不動作）はセッション確立もタイムアウトも
-  待たず即断でbatchへ（voiceCapture.finish先頭で判定）
+  待たず即断でbatchへ（voiceCapture.finish先頭で判定）。
+  submitVoice全体は15sの全体デッドラインで包み、超過時はin-flight認識をabortして会話を止めない
   ↓ 認識テキストを即時表示
 [Claude Haiku] streaming で返答生成（§7a）。テキストは逐次表示
   ↓ 文境界ごとに
@@ -267,7 +270,8 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - **失敗契約**: このモジュールは内部層としてthrowする。呼び出し側（`conversation/voiceCapture.ts`→useConversation）が録音Blobからbatch(assessSpeech)へ自動フォールバックし、「throwせずazureErrorで返す」PaResult契約はbatchが最終保証する
 - **韻律**: 当日キャッシュ+セッション内ガード（§6a）で事前判定。ストリーミング内での韻律なしリトライはしない（音声を再送できない）。**韻律起因（非一時障害・非結果ゼロ）の失敗時はthrow前に当日キャッシュをawaitで書き込み**、直後のbatchフォールバックを韻律なし1回にする（「stream失敗+batch2回」の三重連鎖を断つ。M11補修）
 - **後片付け（M11補修）**: WebSocketを実際に切るのは `Connection.closeConnection()`（`close()`はラッパー破棄のみ）。closeAllは closeConnection→connection.close→recognizer.close→audioConfig→speechConfig の順（iOS teardownバグでrecognizer.closeが不完全でもWSを残留させず、F0無料枠の同時接続を塞がない）。**認識開始失敗時もcloseAllを必ず呼ぶ**（呼ばないと事前openしたWSがリークし後続ターンを遅くする）
-- **適応finishタイムアウト（M11補修）**: 純関数 `finishTimeoutMs` — recognizing/recognizedイベントの証拠があれば45秒（生きた遅いセッションを打ち切って二重払いしない）、無ければ10秒（WS死亡の疑いは早くbatchへ）
+- **適応finishタイムアウト＋部分結果サルベージ（M12）**: 純関数 `finishTimeoutMs` — 証拠（recognizing/recognized）ありで4秒・無しで3秒（旧45/10秒はF0のWSストールで最大~70秒固まる原因だった）。タイムアウトしても**録音中に集めたフレーズを捨てずサルベージ**する（純関数 `canSalvagePartial`: 未カバー末尾がSALVAGE_MAX_UNCOVERED_TAIL_SEC=3秒以内ならOK、超えれば末尾切れの疑いでbatch）。close後NUDGE_AFTER_CLOSE_MS=2秒で `stopContinuousRecognitionAsync` を能動的に叩き、ストールしたsessionStoppedを引き出す（nudge）。タイムアウトは韻律の是非と無関係なので韻律ガードは立てない
+- **全体デッドライン（M12）**: submitVoice側で PA_DEADLINE_MS=15秒の AbortController を張り、streaming確定+batchの合計が長引いたら in-flight 認識を abort（batch側は `AssessSpeechOptions.signal`→recognizeOnce で停止）。race敗者放置でF0のWSを掴み続け失敗連鎖になるのを防ぐ。batch側 `RECOGNITION_TIMEOUT_MS` も120→20秒に短縮
 - **PA診断ログ**: 主要イベント（開始・接続/初回認識/確定ms・失敗理由・batch各試行）を `paDebugLog.ts` 経由で appState `paDebugLog` に記録し、selftest「6. 直近のPA診断ログ」で閲覧・コピー・クリアできる（iPhoneでのconsole代替・障害報告の一次情報）
 - iOS teardownバグ対策（swallowTeardownError）・resolveRecognitionOutcome・aggregatePhraseAssessments は azurePaUnscripted.ts と共有
 - セッション状態遷移は純関数 nextSessionState（Vitest）。usageLog加算はstream/batchどちらか一方のみ
@@ -313,10 +317,13 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - thinkingTimeMs: thinkingMsの中央値
 - meanUtteranceWords: ユーザー発話の平均語数
 - `composite = 0.3*pron + 0.3*grammarComponent + 0.2*fluencyComponent + 0.2*complexityComponent`（各成分の正規化式はmetrics.tsに定義しテストで固定）
+- **pron欠損時の再重み付け（M12）**: 音声スコアが1件も無いセッション（テキスト入力のみ・発音評価スキップ等）は、pron=0を0.3で足すとcompositeが70で頭打ちになり昇格ライン75へ永久に届かない。pronの重みを残り3成分へ比例配分して再正規化する（grammar/fluency/complexity=0.3/0.2/0.2を合計1へ）
 
 ### 8c. 昇降格（`src/lib/level/progress.ts`・純関数・Vitest必須）
 - 現レベル以上の難易度のレッスン直近5件中4件が composite ≥ 75 → 昇格（上限5）
 - 直近5件すべて composite < 50 → 降格（下限1）。昇格から3日以内は降格しない
+- **判定材料の窓（M12）**: `applyLevelProgress` は内部で「現レベル以上をフィルタ→直近5件」（昇格）／「直近5件（レベル問わず）」（降格）を行うため、呼び出し側 `sessionEnd.ts` は十分広い窓（**直近20件**）を渡す。5件しか渡さないと『直近5件が全て現レベル以上』でないと昇格判定が発動せず、復習で下位レベルを1回挟むだけで昇格がリセットされてしまう
+- **昇格プログレスの可視化（M12・§8d）**: 純関数 `computePromoteProgress`（現レベル以上・直近5件のうち≥75の件数／あと何回）を Home・進捗・RewardScreen に表示（`LevelUpProgress`）。RewardScreenでは採点付きセッションのみ、このレッスンのcomposite・75ラインとの位置・昇格判定の対象/対象外も出す
 - 降格の表示文言は「サポートを増やしました」。設定で手動オーバーライド可
 
 ### 8d. レベル別パラメータ（`src/lib/level/params.ts`・定数テーブル）
