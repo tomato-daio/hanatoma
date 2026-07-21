@@ -48,19 +48,28 @@ interface IslandSummary {
   unlocked: boolean;
 }
 
-/** scenarioIdごとの最高★を求める（同じシナリオを複数回プレイした場合はベストスコアを採用）。 */
-function bestStarsByScenario(conversations: Conversation[]): Map<string, 0 | 1 | 2 | 3> {
+/**
+ * scenarioIdごとの最高★を求める（同じシナリオを複数回プレイした場合はベストスコアを採用）。
+ * ★0の完了もエントリを作る（completedCountと「プレイ実績によるロック非表示」の判定に使うため）。
+ */
+export function bestStarsByScenario(conversations: Conversation[]): Map<string, 0 | 1 | 2 | 3> {
   const map = new Map<string, 0 | 1 | 2 | 3>();
   for (const c of conversations) {
     if (c.status !== 'completed') continue;
     const stars = c.stars ?? (c.metrics ? starsFromComposite(c.metrics.composite) : 0);
-    const prev = map.get(c.scenarioId) ?? 0;
-    if (stars > prev) map.set(c.scenarioId, stars);
+    const prev = map.get(c.scenarioId);
+    if (prev === undefined || stars > prev) map.set(c.scenarioId, stars);
   }
   return map;
 }
 
-function buildIslands(scenarios: Scenario[], starMap: Map<string, 0 | 1 | 2 | 3>): IslandSummary[] {
+/**
+ * 島サマリを組み立てる純関数（Vitest対象）。
+ * unlocked（解錠マーク表示）は「最初の島 / 前の島で★3以上 / **自分の島にプレイ実績がある**」の
+ * いずれか。ロックはもともと表示のみでプレイ経路にゲートは無い（DESIGN.md §10）ため、
+ * 実績のある島に🔒を出すと「解放されていないのに進捗がある」矛盾表示になるのを防ぐ。
+ */
+export function buildIslands(scenarios: Scenario[], starMap: Map<string, 0 | 1 | 2 | 3>): IslandSummary[] {
   const base = CATEGORY_ORDER.map((category) => {
     const categoryScenarios = scenarios
       .filter((s) => s.category === category)
@@ -72,7 +81,11 @@ function buildIslands(scenarios: Scenario[], starMap: Map<string, 0 | 1 | 2 | 3>
 
   return base.map((island, idx) => ({
     ...island,
-    unlocked: idx === 0 || base[idx - 1].totalStars >= UNLOCK_STAR_THRESHOLD,
+    unlocked:
+      idx === 0 ||
+      base[idx - 1].totalStars >= UNLOCK_STAR_THRESHOLD ||
+      island.totalStars > 0 ||
+      island.completedCount > 0,
   }));
 }
 
@@ -100,7 +113,7 @@ export function ScenarioMap({ scenarios, conversations, onSelectCategory }: Scen
                 {meta.emoji}
               </span>
               {!island.unlocked && (
-                <span className="text-xs text-neutral-400" title="前の島で★3以上を集めると解錠マークが付きます">
+                <span className="text-xs text-neutral-400" title="前の島で★3ためると解放（先にプレイも可）">
                   🔒
                 </span>
               )}
@@ -114,7 +127,7 @@ export function ScenarioMap({ scenarios, conversations, onSelectCategory }: Scen
                 return (
                   <div
                     key={s.id}
-                    title={`Lv${s.level} ${s.titleJa}${played ? ` ・ ${'★'.repeat(stars)}` : ''}`}
+                    title={`Lv${s.level} ${s.titleJa}${played && stars > 0 ? ` ・ ${'★'.repeat(stars)}` : ''}`}
                     className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
                       played ? 'bg-hana-400 text-white' : 'border border-neutral-200 bg-white text-neutral-400'
                     }`}
@@ -129,7 +142,7 @@ export function ScenarioMap({ scenarios, conversations, onSelectCategory }: Scen
               ★{island.totalStars} ・ {island.completedCount}/{island.scenarios.length}完了
             </p>
             {!island.unlocked && (
-              <p className="mt-1 text-[10px] text-neutral-400">前の島で★3以上ためると解放</p>
+              <p className="mt-1 text-[10px] text-neutral-400">前の島で★3ためると解放（先にプレイも可）</p>
             )}
           </Tag>
         );

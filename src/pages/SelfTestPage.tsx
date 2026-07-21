@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getAzureSpeechKey } from '../features/speech/azureSpeechConfig';
+import { PaDebugLogPanel } from '../features/speech/selftest/PaDebugLogPanel';
 import { PaEvaluationPanel } from '../features/speech/selftest/PaEvaluationPanel';
 import { RecordingPanel } from '../features/speech/selftest/RecordingPanel';
 import { StreamingPaPanel } from '../features/speech/selftest/StreamingPaPanel';
@@ -58,6 +59,7 @@ export function SelfTestPage() {
       <PaEvaluationPanel title="3. scriptedモードテスト" mode="scripted" recording={recording} />
       <TtsTestPanel />
       <StreamingPaPanel />
+      <PaDebugLogPanel />
     </div>
   );
 }

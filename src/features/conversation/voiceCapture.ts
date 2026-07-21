@@ -20,6 +20,7 @@ import {
   type StreamingPaSession,
 } from '../speech/azurePaStreaming';
 import type { AssessSpeechResult } from '../speech/azurePaUnscripted';
+import { logPaDebug } from '../speech/paDebugLog';
 
 export interface VoiceCaptureHandle {
   /** useRecorderのonAudioChunkへそのまま渡す。 */
@@ -67,10 +68,11 @@ export function beginVoiceCapture(
         '[voiceCapture] ストリーミング評価セッションの開始に失敗しました（停止後にbatch評価へフォールバックします）。',
         err,
       );
+      logPaDebug(`[capture] セッション開始失敗→batchへ (${err instanceof Error ? err.name : String(err)})`);
     },
   );
 
-  return {
+  const handle: VoiceCaptureHandle = {
     onAudioChunk(chunk, sampleRate) {
       if (aborted || failed || chunk.length === 0) return;
       if (!resampler) resampler = createResamplerState(sampleRate, TARGET_SAMPLE_RATE);
@@ -88,12 +90,22 @@ export function beginVoiceCapture(
 
     async finish() {
       if (aborted) return null;
+      // ゼロチャンク即断（DESIGN.md §5）: PCMが1バイトも届いていない＝AudioWorkletが
+      // 動いていない疑い。セッション確立やタイムアウトを待たずに即破棄してbatchへ
+      // （iOSでworkletが沈黙した場合の無駄待ちを防ぐ）。
+      if (totalPcmBytes === 0) {
+        console.warn('[voiceCapture] PCMチャンクが1件も届いていないため、ストリーミング評価を破棄します（batchへ）。');
+        logPaDebug('[capture] PCMチャンク0件→即abort（worklet不動作の疑い）→batchへ');
+        handle.abort();
+        return null;
+      }
       await sessionPromise;
       if (!session || failed) return null;
       try {
         return await session.finish();
       } catch (err) {
         console.warn('[voiceCapture] ストリーミング評価に失敗しました（batch評価へフォールバックします）。', err);
+        logPaDebug(`[capture] stream失敗→batchへ (${err instanceof Error ? err.name : String(err)})`);
         return null;
       }
     },
@@ -114,4 +126,5 @@ export function beginVoiceCapture(
       }
     },
   };
+  return handle;
 }

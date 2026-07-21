@@ -46,6 +46,7 @@
 
 import { learningDate } from '../../lib/dates';
 import type { PaResult } from '../../lib/types';
+import { logPaDebug } from './paDebugLog';
 
 /** PaResult内の1語ぶんスコア（types.tsのインライン型に別名を付けたもの）。 */
 export type PaWordScore = PaResult['words'][number];
@@ -139,6 +140,40 @@ export function shouldSkipProsody(cached: unknown, region: string, today: string
   if (typeof cached !== 'object' || cached === null) return false;
   const record = cached as Record<string, unknown>;
   return record.region === region && record.date === today;
+}
+
+/**
+ * 一時障害系（ネットワーク/認証/タイムアウト）かの分類純関数（DESIGN.md §6a）。
+ * これらは「韻律非対応の証拠」にならないため、当日キャッシュの書き込み判定に使う。
+ */
+export function isTransientPaError(err: unknown): boolean {
+  return (
+    err instanceof AzurePronunciationNetworkError ||
+    err instanceof AzurePronunciationAuthError ||
+    err instanceof AzurePronunciationTimeoutError
+  );
+}
+
+/**
+ * アプリセッション内の韻律失敗ガード（DESIGN.md §6a。M11補修）。
+ * 韻律あり試行の失敗を1回でも観測したら、同一アプリセッション中は stream/batch とも
+ * 韻律なしで直行する（当日キャッシュが書かれないネットワーク分類の失敗でも、
+ * 毎ターンの二重試行を防ぐ第二の防衛線）。リロードでリセットされ、
+ * 韻律あり成功時（resetProsodySessionGuard）にも解除される。
+ */
+let prosodyFailedInSession = false;
+
+export function markProsodyFailureInSession(): void {
+  prosodyFailedInSession = true;
+}
+
+export function hasProsodyFailedInSession(): boolean {
+  return prosodyFailedInSession;
+}
+
+/** テストとselftest診断パネルのリセットボタンの両方から使う。 */
+export function resetProsodySessionGuard(): void {
+  prosodyFailedInSession = false;
 }
 
 /**
@@ -615,57 +650,77 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
       region,
     };
 
-    // 韻律非対応の当日キャッシュ（DESIGN.md §6a）: 同日・同リージョンでフォールバック実績が
+    // 韻律非対応の当日キャッシュ + セッション内ガード（DESIGN.md §6a）: フォールバック実績が
     // あれば最初から韻律なし1回で実行し、毎ターンの二重認識（レイテンシ倍増）を避ける。
     const today = learningDate(new Date());
     const cachedFallback = await config.getPaProsodyFallback();
-    const skipProsody = shouldSkipProsody(cachedFallback, region, today);
+    const guardActive = hasProsodyFailedInSession();
+    const skipProsody = guardActive || shouldSkipProsody(cachedFallback, region, today);
 
+    const errName = (e: unknown): string => (e instanceof Error ? e.name : String(e));
     let phrases: PhraseAssessment[];
     let usedProsody = !skipProsody;
     let retried = false;
 
     if (skipProsody) {
-      console.info(
-        '[azurePaUnscripted] 当日キャッシュにより韻律なしで直接実行します（このリージョンで本日フォールバック実績あり）。',
-      );
-      phrases = await recognizeOnce(SpeechSDK, wavBuffer, { ...recognizeOpts, enableProsody: false });
-      if (phrases.length === 0) {
-        throw new AzurePronunciationNoResultError();
+      const reason = guardActive ? 'セッションガード' : '当日キャッシュ';
+      console.info(`[azurePaUnscripted] ${reason}により韻律なしで直接実行します。`);
+      const t1 = performance.now();
+      try {
+        phrases = await recognizeOnce(SpeechSDK, wavBuffer, { ...recognizeOpts, enableProsody: false });
+        if (phrases.length === 0) {
+          throw new AzurePronunciationNoResultError();
+        }
+      } catch (err) {
+        logPaDebug(`[batch] 韻律なし(${reason}) 失敗 ${Math.round(performance.now() - t1)}ms (${errName(err)})`);
+        throw err;
       }
+      logPaDebug(`[batch] 韻律なし(${reason}) 成功 ${Math.round(performance.now() - t1)}ms`);
     } else {
+      const t1 = performance.now();
       try {
         phrases = await recognizeOnce(SpeechSDK, wavBuffer, { ...recognizeOpts, enableProsody: true });
         if (phrases.length === 0) {
           throw new AzurePronunciationNoResultError();
         }
-        // 韻律あり成功: 古いキャッシュ（別日・別リージョンの残骸）があれば消す（自己回復）。
+        logPaDebug(`[batch] 韻律あり 成功 ${Math.round(performance.now() - t1)}ms`);
+        // 韻律あり成功: 古いキャッシュ・セッションガードを解除する（自己回復）。
+        resetProsodySessionGuard();
         if (cachedFallback !== undefined) {
           await config.clearPaProsodyFallback();
         }
       } catch (firstErr) {
+        logPaDebug(
+          `[batch] 韻律あり 失敗 ${Math.round(performance.now() - t1)}ms (${errName(firstErr)}) → 韻律なしリトライ`,
+        );
+        // 無音・結果ゼロは韻律非対応の証拠にならないため、ガードは立てない。
+        if (!(firstErr instanceof AzurePronunciationNoResultError)) {
+          markProsodyFailureInSession();
+        }
         console.error(
           '[azurePaUnscripted] 韻律ありでの発音評価に失敗しました。韻律なしで1回だけ自動リトライします。',
           firstErr,
         );
         retried = true;
         usedProsody = false;
+        const t2 = performance.now();
         try {
           phrases = await recognizeOnce(SpeechSDK, wavBuffer, { ...recognizeOpts, enableProsody: false });
           if (phrases.length === 0) {
             throw new AzurePronunciationNoResultError();
           }
           // フォールバック成功: 当日キャッシュを書き、以降のターンは韻律なし1回にする。
-          // ただし1回目の失敗がネットワーク/認証/タイムアウト系のときは一時障害の可能性が
-          // 高いため書かない（「韻律非対応」と誤学習しない）。
-          const transientFirstError =
-            firstErr instanceof AzurePronunciationNetworkError ||
-            firstErr instanceof AzurePronunciationAuthError ||
-            firstErr instanceof AzurePronunciationTimeoutError;
-          if (!transientFirstError) {
+          // ただし1回目の失敗が一時障害系（ネットワーク/認証/タイムアウト）のときは書かない
+          // （「韻律非対応」と誤学習しない。isTransientPaError）。
+          const writeCache = !isTransientPaError(firstErr);
+          if (writeCache) {
             await config.setPaProsodyFallback({ region, date: today });
           }
+          logPaDebug(
+            `[batch] 韻律なしリトライ 成功 ${Math.round(performance.now() - t2)}ms${writeCache ? ' 当日キャッシュ書込' : ''}`,
+          );
         } catch (retryErr) {
+          logPaDebug(`[batch] 韻律なしリトライ 失敗 ${Math.round(performance.now() - t2)}ms (${errName(retryErr)})`);
           console.error('[azurePaUnscripted] 韻律なしでの自動リトライも失敗しました。', retryErr);
           console.info('[azurePaUnscripted] リトライ実施: あり（韻律あり失敗→韻律なしで再試行→こちらも失敗）');
           throw retryErr;

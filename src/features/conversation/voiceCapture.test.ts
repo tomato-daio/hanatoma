@@ -57,10 +57,11 @@ describe('beginVoiceCapture', () => {
     expect(written.length).toBe(3); // 確立後は直結
   });
 
-  it('finishはセッションのfinish結果を返す', async () => {
+  it('finishはセッションのfinish結果を返す（チャンクを書いた通常経路）', async () => {
     const { session } = makeFakeSession();
     const deferred = makeDeferredStart();
     const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000); // ゼロチャンク即断に入らないようPCMを書く
     deferred.resolve(session);
     expect(await capture.finish()).toBe(FAKE_RESULT);
   });
@@ -76,15 +77,16 @@ describe('beginVoiceCapture', () => {
   });
 
   it('セッションのfinishがthrowしてもnullを返す', async () => {
-    const { session } = makeFakeSession({
-      finish: vi.fn(async () => {
-        throw new Error('prosody unsupported');
-      }),
+    const finishMock = vi.fn(async (): Promise<never> => {
+      throw new Error('prosody unsupported');
     });
+    const { session } = makeFakeSession({ finish: finishMock });
     const deferred = makeDeferredStart();
     const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
     deferred.resolve(session);
     expect(await capture.finish()).toBeNull();
+    expect(finishMock).toHaveBeenCalledTimes(1); // ゼロチャンク即断ではなく実際にfinishが失敗した経路
   });
 
   it('abort後はonAudioChunk・finishとも何もしない（冪等）', async () => {
@@ -120,6 +122,32 @@ describe('beginVoiceCapture', () => {
     // 16k→16kで16000サンプル入力→15999サンプル出力（持ち越し1）≒1.0秒
     capture.onAudioChunk(chunkOf(16001), 16000);
     expect(capture.audioSeconds()).toBeCloseTo(1.0, 2);
+  });
+
+  it('ゼロチャンクのままfinishすると、セッション確立を待たず即null（session.finish未呼出）', async () => {
+    const { session } = makeFakeSession();
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    // sessionPromiseは未解決のまま（awaitしていれば永久に返らない）
+    expect(await capture.finish()).toBeNull();
+    expect(session.finish).not.toHaveBeenCalled();
+
+    // 遅れて確立してもabort済みとして破棄される
+    deferred.resolve(session);
+    await Promise.resolve();
+    expect(session.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('ゼロチャンク即断後はonAudioChunkも無視される（abort済み）', async () => {
+    const { session, written } = makeFakeSession();
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    deferred.resolve(session);
+    await Promise.resolve();
+
+    expect(await capture.finish()).toBeNull(); // チャンク0件のまま停止
+    capture.onAudioChunk(chunkOf(100), 16000);
+    expect(written).toEqual([]);
   });
 
   it('44.1kHz入力でも16kへリサンプルして流す', async () => {

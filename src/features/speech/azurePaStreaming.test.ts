@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  FINISH_TIMEOUT_NO_EVIDENCE_MS,
+  FINISH_TIMEOUT_WITH_EVIDENCE_MS,
+  finishTimeoutMs,
   nextSessionState,
   pcmBytesToSeconds,
   type StreamingSessionEvent,
@@ -52,6 +55,14 @@ describe('nextSessionState', () => {
 
   it('streamingでconnected（重複通知）は状態を変えない', () => {
     expect(nextSessionState('streaming', 'connected')).toBe('streaming');
+  });
+});
+
+describe('finishTimeoutMs', () => {
+  it('認識イベントの証拠があれば長く待ち、無ければ短く見切る', () => {
+    expect(finishTimeoutMs(true)).toBe(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
+    expect(finishTimeoutMs(false)).toBe(FINISH_TIMEOUT_NO_EVIDENCE_MS);
+    expect(FINISH_TIMEOUT_NO_EVIDENCE_MS).toBeLessThan(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
   });
 });
 

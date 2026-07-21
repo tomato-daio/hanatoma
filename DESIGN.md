@@ -171,6 +171,7 @@ interface UsageDay {
 //       reviewStats(ReviewStats) / reviewDates(string[])  ← サイレント復習(§4b)。appStateは
 //       スキーマレスなためDBバージョンは1のまま。バックアップにも自動的に含まれる
 //       paProsodyFallback({region,date}) ← 韻律非対応リージョンの当日キャッシュ(§6a)
+//       paDebugLog(string[]・「HH:MM:SS [tag] 行」最新30件リングバッファ) ← PA診断ログ(§6a-2)
 
 // サイレント復習のSRS状態（appState 'reviewStats'。types.tsに型あり）
 interface ReviewCardStat {
@@ -229,8 +230,10 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
   → lib/pcm.ts: 線形補間ダウンサンプル(実レート→16k・チャンク境界持ち越し) → PCM16
   → azurePaStreaming: SDK事前warm済→WS事前接続→continuous認識へ逐次push
 [録音停止] session.finish(): pushStream.close → 確定結果（体感1〜2秒）
-  失敗時（韻律初回失敗/接続断/worklet不可/結果ゼロ/15sタイムアウト）は
-  録音Blobから従来のbatch経路（decodeToMono16k→WAV→assessSpeech）へ自動フォールバック
+  失敗時（韻律初回失敗/接続断/結果ゼロ/適応タイムアウト=認識イベントありなら45s・なければ10s）は
+  録音Blobから従来のbatch経路（decodeToMono16k→WAV→assessSpeech）へ自動フォールバック。
+  PCMチャンクが1件も届いていない場合（worklet不動作）はセッション確立もタイムアウトも
+  待たず即断でbatchへ（voiceCapture.finish先頭で判定）
   ↓ 認識テキストを即時表示
 [Claude Haiku] streaming で返答生成（§7a）。テキストは逐次表示
   ↓ 文境界ごとに
@@ -251,7 +254,8 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - `PronunciationAssessmentConfig`: referenceText=**空文字**、GradingSystem=HundredMark、Granularity=Phoneme、EnableProsodyAssessment。`speechRecognitionLanguage='en-US'`
 - 音声は WAV(16kHz mono PCM16) を pushStream で投入。60秒超対応のため continuous recognition で最後まで処理し、複数結果は**音声長加重でスコア統合**（shadotoma `azurePronunciation.ts` のロジック流用）。認識テキストは連結
 - **プロソディ・フォールバック**: 韻律有効で失敗したら韻律なしで1回だけ自動リトライ（japaneastで失敗実績あり）。両方失敗時のみエラー（`azureError` に errorDetails 先頭120字）
-- **韻律非対応の当日キャッシュ**（レイテンシ対策）: フォールバック成功時に appState `paProsodyFallback` = `{region, date(学習日)}` を記録し、**同日・同リージョンなら最初から韻律なし1回で実行**（毎ターン2回認識になるのを防ぐ）。学習日が変わると自動で再プローブ（Azureが韻律対応した際の自己回復。1日の最初のターンだけ2回になりうる）。1回目の失敗がネットワーク/認証/タイムアウト系のときは書かない（一時障害の誤学習防止）。韻律あり成功時はキャッシュ削除。キャッシュ読み書き（azureSpeechConfig.tsのget/set/clearヘルパー）は決してthrowせず評価の成否に影響させない
+- **韻律非対応の当日キャッシュ**（レイテンシ対策）: フォールバック成功時に appState `paProsodyFallback` = `{region, date(学習日)}` を記録し、**同日・同リージョンなら最初から韻律なし1回で実行**（毎ターン2回認識になるのを防ぐ）。学習日が変わると自動で再プローブ（Azureが韻律対応した際の自己回復。1日の最初のターンだけ2回になりうる）。1回目の失敗が一時障害系（`isTransientPaError`: ネットワーク/認証/タイムアウト）のときは書かない（誤学習防止）。韻律あり成功時はキャッシュ削除。キャッシュ読み書き（azureSpeechConfig.tsのget/set/clearヘルパー）は決してthrowせず評価の成否に影響させない
+- **セッション内韻律ガード**（M11補修）: 韻律あり試行の失敗（結果ゼロ除く）を1回でも観測したら、同一アプリセッション中は stream/batch とも韻律なしで直行する（当日キャッシュが書かれない一時障害分類の失敗でも二重試行の連鎖を防ぐ第二の防衛線）。リロードでリセット・韻律あり成功で解除。selftest診断パネルで現在値の確認とリセットが可能
 - 音素スコアを集計し `weakPhonemes`（低スコア音素トップ3: 記号・平均点・例語最大2）を保存
 - PAエラー時も会話は継続する（認識テキストが取れなければ「聞き取れませんでした。もう一度どうぞ」表示。Haikuは呼ばない）
 - **フレーズヒント**（認識精度向上）: `assessSpeech` は `phraseHints?: string[]` を受け取り、`PhraseListGrammar.fromRecognizer(recognizer).addPhrases()` で認識エンジンに渡す。会話ターンでは `buildPhraseHints(scenario, ctx: {phase, stepIndex})`（`src/features/conversation/phraseHints.ts`・純関数・Vitest必須）で**文脈に絞って**組み立てる: ガイド中=キーフレーズ英文+現在stepのmodelAnswerのみ、それ以外（フリー会話等）=キーフレーズ英文のみ。⚠️全stepsの模範解答（長文8〜10件）を一括で渡すと認識がヒント文へ引っ張られる over-biasing の実害があったため、範囲を広げないこと。ヒントは重複除去（大文字小文字無視）・空除去のうえ最大40件
@@ -260,8 +264,11 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 
 ### 6a-2. ストリーミング発音評価（M11）`azurePaStreaming.ts`
 - **録音開始時に** SDK import（useConversationマウント時にprewarmSpeechSdkで事前ロード済み）→ WS事前接続（Connection.openConnection）→ continuous認識開始まで済ませ、マイクの16k PCM16（`lib/pcm.ts` の決定的リサンプラ+`recorder/pcmTapWorklet.ts` のAudioWorkletで生成）を逐次push。停止時は close→確定待ちのみ
-- **失敗契約**: このモジュールは内部層としてthrowする。呼び出し側（`conversation/voiceCapture.ts`→useConversation）が録音Blobからbatch(assessSpeech・無変更)へ自動フォールバックし、「throwせずazureErrorで返す」PaResult契約はbatchが最終保証する
-- **韻律**: 当日キャッシュ（shouldSkipProsody）で事前判定のみ。ストリーミング内での韻律なしリトライはしない（音声を再送できない）。韻律起因の失敗→batchが既存ロジックでリトライ・キャッシュ書込→翌ターンからストリーミングも韻律なしで開始（自己回復）
+- **失敗契約**: このモジュールは内部層としてthrowする。呼び出し側（`conversation/voiceCapture.ts`→useConversation）が録音Blobからbatch(assessSpeech)へ自動フォールバックし、「throwせずazureErrorで返す」PaResult契約はbatchが最終保証する
+- **韻律**: 当日キャッシュ+セッション内ガード（§6a）で事前判定。ストリーミング内での韻律なしリトライはしない（音声を再送できない）。**韻律起因（非一時障害・非結果ゼロ）の失敗時はthrow前に当日キャッシュをawaitで書き込み**、直後のbatchフォールバックを韻律なし1回にする（「stream失敗+batch2回」の三重連鎖を断つ。M11補修）
+- **後片付け（M11補修）**: WebSocketを実際に切るのは `Connection.closeConnection()`（`close()`はラッパー破棄のみ）。closeAllは closeConnection→connection.close→recognizer.close→audioConfig→speechConfig の順（iOS teardownバグでrecognizer.closeが不完全でもWSを残留させず、F0無料枠の同時接続を塞がない）。**認識開始失敗時もcloseAllを必ず呼ぶ**（呼ばないと事前openしたWSがリークし後続ターンを遅くする）
+- **適応finishタイムアウト（M11補修）**: 純関数 `finishTimeoutMs` — recognizing/recognizedイベントの証拠があれば45秒（生きた遅いセッションを打ち切って二重払いしない）、無ければ10秒（WS死亡の疑いは早くbatchへ）
+- **PA診断ログ**: 主要イベント（開始・接続/初回認識/確定ms・失敗理由・batch各試行）を `paDebugLog.ts` 経由で appState `paDebugLog` に記録し、selftest「6. 直近のPA診断ログ」で閲覧・コピー・クリアできる（iPhoneでのconsole代替・障害報告の一次情報）
 - iOS teardownバグ対策（swallowTeardownError）・resolveRecognitionOutcome・aggregatePhraseAssessments は azurePaUnscripted.ts と共有
 - セッション状態遷移は純関数 nextSessionState（Vitest）。usageLog加算はstream/batchどちらか一方のみ
 
@@ -345,7 +352,7 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - **デイリークエスト** `quests.ts`: 学習日文字列のFNV-1aハッシュをシードに、カタログから決定的に3件選択（レベル・弱点音素でフィルタ）。カタログ例: 1シナリオ完了 / 新しい表現を3つ使う / 発音スコア80+のターンを5回 / 苦手音素◯を含む語を3回言う / クイック会話2本 / キーフレーズ全部✓
 - **バッジ** `badges.ts`: `evaluateBadges(profile, conversations, expressions)` → カテゴリ制覇（各カテゴリ5シナリオ完了）/ 音素克服（PA移動平均≥75）/ ストリーク7・30・100 / 表現帳50語 / ボス初勝利 など
 - **★評価** `stars.ts`: composite 50/70/85 → ★1/2/3
-- **島マップ**: カテゴリ=島。カテゴリ内★合計が閾値で次の島アンロック（表示上のロック。プレイ自体は可＝飽き対策で強制しない）
+- **島マップ**: カテゴリ=島。カテゴリ内★合計が閾値で次の島アンロック（表示上のロック。プレイ自体は可＝飽き対策で強制しない。推薦・開始経路にゲートは置かない）。**プレイ実績（★または完了）のある島にはロックを表示しない**（「解放されていないのに進捗がある」矛盾表示の防止）。ロック中キャプションは「前の島で★3ためると解放（先にプレイも可）」
 - **リワード画面**: XP加算アニメ → 新表現カード → バッジ/昇格 → クエスト進捗。会話終了後に必ず表示
 
 ## 11. shadotoma 連携（データレベル）

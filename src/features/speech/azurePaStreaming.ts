@@ -29,14 +29,19 @@ import {
   AzurePronunciationNoResultError,
   AzurePronunciationTimeoutError,
   AzureSpeechKeyMissingError,
+  hasProsodyFailedInSession,
+  isTransientPaError,
+  markProsodyFailureInSession,
   resolveRecognitionOutcome,
   shouldSkipProsody,
   swallowTeardownError,
   toPhraseAssessment,
+  truncateDetail,
   type AssessSpeechResult,
   type AzureDetailResultLike,
   type PhraseAssessment,
 } from './azurePaUnscripted';
+import { logPaDebug } from './paDebugLog';
 
 export interface StreamingPaOptions {
   mode: 'unscripted' | 'scripted';
@@ -107,8 +112,19 @@ export function prewarmSpeechSdk(): void {
   void import('microsoft-cognitiveservices-speech-sdk').catch(() => {});
 }
 
-/** finish時の確定待ちタイムアウト。音声送信済みのため確定は速い前提（超過はbatchへ）。 */
-const FINISH_TIMEOUT_MS = 15_000;
+/** 認識イベントを1件でも受けている（=セッションが生きている証拠あり）ときの確定待ち上限。 */
+export const FINISH_TIMEOUT_WITH_EVIDENCE_MS = 45_000;
+/** 認識イベントが1件も無い（=WS死亡の疑い）ときの確定待ち上限。長く待たずbatchへ。 */
+export const FINISH_TIMEOUT_NO_EVIDENCE_MS = 10_000;
+
+/**
+ * finishの確定待ちタイムアウトを決める純関数（DESIGN.md §6a-2）。
+ * 進捗の証拠（recognizing/recognizedイベント）があれば、遅いだけの生きたセッションを
+ * 打ち切って「タイムアウト待ち+batch再実行」の二重払いになるのを避けるため長く待つ。
+ */
+export function finishTimeoutMs(hasRecognitionEvidence: boolean): number {
+  return hasRecognitionEvidence ? FINISH_TIMEOUT_WITH_EVIDENCE_MS : FINISH_TIMEOUT_NO_EVIDENCE_MS;
+}
 
 /**
  * ストリーミング評価セッションを開始する（録音開始時に呼ぶ）。
@@ -130,7 +146,8 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   if (!apiKey) throw new AzureSpeechKeyMissingError();
   const region = await config.getAzureSpeechRegion();
   const today = learningDate(new Date());
-  const skipProsody = shouldSkipProsody(await config.getPaProsodyFallback(), region, today);
+  const skipProsody =
+    hasProsodyFailedInSession() || shouldSkipProsody(await config.getPaProsodyFallback(), region, today);
 
   const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(apiKey, region);
   speechConfig.speechRecognitionLanguage = 'en-US';
@@ -157,6 +174,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   if (hints.length > 0) {
     SpeechSDK.PhraseListGrammar.fromRecognizer(recognizer).addPhrases(hints);
   }
+  logPaDebug(`[stream] 開始 ${opts.mode} 韻律${skipProsody ? 'なし(スキップ)' : 'あり'} ヒント${hints.length}件`);
 
   let state: StreamingSessionState = 'connecting';
   const phrases: PhraseAssessment[] = [];
@@ -228,8 +246,10 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
 
   // WebSocketの事前確立（認識開始前にハンドシェイクを済ませる）。失敗しても
   // startContinuousRecognitionAsyncが自前で接続するため致命的ではない。
+  // connection参照はcloseAllから確実に切断するため巻き上げて保持する。
+  let connection: import('microsoft-cognitiveservices-speech-sdk').Connection | null = null;
   try {
-    const connection = SpeechSDK.Connection.fromRecognizer(recognizer);
+    connection = SpeechSDK.Connection.fromRecognizer(recognizer);
     connection.connected = () => {
       if (connectedMs === null) connectedMs = performance.now() - t0;
       state = nextSessionState(state, 'connected');
@@ -239,18 +259,33 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
     console.warn('[azurePaStreaming] WebSocketの事前確立に失敗しました（認識開始時に再接続されます）。', err);
   }
 
-  await new Promise<void>((resolve, reject) => {
-    recognizer.startContinuousRecognitionAsync(
-      () => resolve(),
-      (err) => reject(new AzurePronunciationNetworkError(String(err))),
-    );
-  });
-
+  // 後片付け（DESIGN.md §6a-2）: WebSocketを実際に切るのは connection.closeConnection()
+  // （close()はラッパー破棄のみ）。iOSのteardownバグでrecognizer.close()が不完全でも
+  // WSが残留してF0無料枠の同時接続を塞がないよう、closeConnectionを最初に呼ぶ。
   const closeAll = () => {
+    swallowTeardownError('connection.closeConnection', () => connection?.closeConnection());
+    swallowTeardownError('connection.close', () => connection?.close());
     swallowTeardownError('recognizer.close', () => recognizer.close());
     swallowTeardownError('audioConfig.close', () => audioConfig.close());
     swallowTeardownError('speechConfig.close', () => speechConfig.close());
   };
+
+  // 認識開始の失敗時もclose群を必ず呼ぶ（呼ばないと事前openしたWSがリークし、
+  // 以降のターンのセッションがサーバ側で待たされる原因になる）。
+  try {
+    await new Promise<void>((resolve, reject) => {
+      recognizer.startContinuousRecognitionAsync(
+        () => resolve(),
+        (err) => reject(new AzurePronunciationNetworkError(String(err))),
+      );
+    });
+  } catch (err) {
+    logPaDebug(
+      `[stream] 認識開始に失敗 (${err instanceof Error ? `${err.name}: ${truncateDetail(err.message)}` : String(err)})`,
+    );
+    closeAll();
+    throw err;
+  }
 
   let finishing: Promise<AssessSpeechResult> | null = null;
 
@@ -275,13 +310,15 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
       state = nextSessionState(state, 'finishRequested');
       finishing = (async () => {
         const tClose = performance.now();
+        // 適応タイムアウト（DESIGN.md §6a-2）: 進捗の証拠の有無で待ち時間を変える。
+        const timeoutMs = finishTimeoutMs(firstEventMs !== null);
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
           swallowTeardownError('pushStream.close', () => pushStream.close());
           await Promise.race([
             settled,
             new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => reject(new AzurePronunciationTimeoutError()), FINISH_TIMEOUT_MS);
+              timeoutId = setTimeout(() => reject(new AzurePronunciationTimeoutError()), timeoutMs);
             }),
           ]);
           const resolved = resolveRecognitionOutcome(phrases, recognitionError);
@@ -292,16 +329,33 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
           });
           if (!result) throw new AzurePronunciationNoResultError();
           state = nextSessionState(state, 'settledOk');
-          console.info(
-            `[azurePaStreaming] 接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms / ` +
-              `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms / ` +
-              `close→確定 ${Math.round(performance.now() - tClose)}ms / ` +
-              `音声 ${pcmBytesToSeconds(bytesWritten).toFixed(1)}s / ${opts.mode} / ` +
-              `韻律${skipProsody ? 'なし(当日キャッシュ)' : 'あり'}`,
-          );
+          const summary =
+            `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms / ` +
+            `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms / ` +
+            `close→確定 ${Math.round(performance.now() - tClose)}ms / ` +
+            `音声 ${pcmBytesToSeconds(bytesWritten).toFixed(1)}s / ${opts.mode} / ` +
+            `韻律${skipProsody ? 'なし(スキップ)' : 'あり'}`;
+          console.info(`[azurePaStreaming] ${summary}`);
+          logPaDebug(`[stream] 確定 ${summary}`);
           return result;
         } catch (err) {
           state = nextSessionState(state, 'settledError');
+          // 韻律あり実行の失敗のうち、一時障害系・結果ゼロ以外（≒BadRequest=韻律非対応の疑い）は
+          // 当日キャッシュを書いてからthrowする。直後のbatchフォールバックはキャッシュを
+          // 読み直すため韻律なし1回で済み、「stream失敗+batch2回」の三重連鎖を断つ。
+          // fire-and-forgetだとbatchの読取と競合するため必ずawaitする（ヘルパーはnever throw）。
+          if (!skipProsody && !(err instanceof AzurePronunciationNoResultError)) {
+            markProsodyFailureInSession();
+            if (!isTransientPaError(err)) {
+              await config.setPaProsodyFallback({ region, date: today });
+              logPaDebug('[stream] 韻律起因の疑い→当日キャッシュ書込（直後のbatchは韻律なし1回）');
+            }
+          }
+          logPaDebug(
+            `[stream] 失敗 ${err instanceof Error ? `${err.name}: ${truncateDetail(err.message)}` : String(err)} ` +
+              `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms 初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : 'なし'} ` +
+              `書込${Math.round(bytesWritten / 1024)}KB`,
+          );
           throw err;
         } finally {
           if (timeoutId !== undefined) clearTimeout(timeoutId);

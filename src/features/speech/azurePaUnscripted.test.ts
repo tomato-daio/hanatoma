@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AzurePronunciationAuthError,
   AzurePronunciationNetworkError,
@@ -8,8 +8,12 @@ import {
   aggregatePhraseAssessments,
   computeWeakPhonemes,
   describeAzureError,
+  hasProsodyFailedInSession,
+  isTransientPaError,
   makeFailurePaResult,
+  markProsodyFailureInSession,
   normalizePhonemeKey,
+  resetProsodySessionGuard,
   resolveRecognitionOutcome,
   shouldSkipProsody,
   toPhraseAssessment,
@@ -503,5 +507,39 @@ describe('shouldSkipProsody', () => {
     expect(shouldSkipProsody({}, REGION, TODAY)).toBe(false);
     expect(shouldSkipProsody({ region: REGION }, REGION, TODAY)).toBe(false);
     expect(shouldSkipProsody({ date: TODAY }, REGION, TODAY)).toBe(false);
+  });
+});
+
+describe('isTransientPaError', () => {
+  it('ネットワーク/認証/タイムアウト系はtrue（韻律非対応の証拠にしない）', () => {
+    expect(isTransientPaError(new AzurePronunciationNetworkError('x'))).toBe(true);
+    expect(isTransientPaError(new AzurePronunciationAuthError())).toBe(true);
+    expect(isTransientPaError(new AzurePronunciationTimeoutError())).toBe(true);
+  });
+
+  it('結果ゼロ・一般Error・非Errorはfalse', () => {
+    expect(isTransientPaError(new AzurePronunciationNoResultError())).toBe(false);
+    expect(isTransientPaError(new Error('bad request'))).toBe(false);
+    expect(isTransientPaError('string')).toBe(false);
+    expect(isTransientPaError(undefined)).toBe(false);
+  });
+});
+
+describe('セッション内韻律ガード', () => {
+  beforeEach(() => {
+    resetProsodySessionGuard();
+  });
+
+  it('初期状態はガードなし', () => {
+    expect(hasProsodyFailedInSession()).toBe(false);
+  });
+
+  it('markで発動し、resetで解除される', () => {
+    markProsodyFailureInSession();
+    expect(hasProsodyFailedInSession()).toBe(true);
+    markProsodyFailureInSession(); // 冪等
+    expect(hasProsodyFailedInSession()).toBe(true);
+    resetProsodySessionGuard();
+    expect(hasProsodyFailedInSession()).toBe(false);
   });
 });
