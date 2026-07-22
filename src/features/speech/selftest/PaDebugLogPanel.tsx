@@ -60,6 +60,10 @@ export function PaDebugLogPanel() {
       <p className="mt-1 text-xs text-neutral-500">
         発音評価の実行経過（最新{30}件）。遅い・失敗するときはこの内容をコピーして共有してください。
       </p>
+      <p className="mt-1 text-xs text-neutral-500">
+        タイムアウトが繰り返し記録される場合は、無料枠（F0）の処理上限が原因の可能性が高いです（設定 &gt; Azure
+        Speech設定の案内を参照）。
+      </p>
       <p className="mt-1 text-[11px] text-neutral-500">
         韻律キャッシュ: {prosodyCache} ／ セッションガード: {guardActive ? '発動中（韻律なし直行）' : 'なし'}
       </p>

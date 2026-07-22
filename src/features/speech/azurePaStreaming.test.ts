@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 import {
   canSalvagePartial,
   FINISH_TIMEOUT_NO_EVIDENCE_MS,
+  FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS,
   FINISH_TIMEOUT_WITH_EVIDENCE_MS,
   finishTimeoutMs,
   nextSessionState,
+  NUDGE_AFTER_CLOSE_MS,
   pcmBytesToSeconds,
+  resolveFinishSalvage,
   SALVAGE_MAX_UNCOVERED_TAIL_SEC,
+  START_TIMEOUT_MS,
   type StreamingSessionEvent,
   type StreamingSessionState,
 } from './azurePaStreaming';
@@ -61,9 +65,11 @@ describe('nextSessionState', () => {
 });
 
 describe('finishTimeoutMs', () => {
-  it('認識イベントの証拠があれば長く待ち、無ければ短く見切る', () => {
-    expect(finishTimeoutMs(true)).toBe(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
-    expect(finishTimeoutMs(false)).toBe(FINISH_TIMEOUT_NO_EVIDENCE_MS);
+  it('認識イベントの証拠があれば長く待ち、無ければモードによらず短く見切る', () => {
+    expect(finishTimeoutMs('unscripted', true)).toBe(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
+    expect(finishTimeoutMs('scripted', true)).toBe(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS);
+    expect(finishTimeoutMs('unscripted', false)).toBe(FINISH_TIMEOUT_NO_EVIDENCE_MS);
+    expect(finishTimeoutMs('scripted', false)).toBe(FINISH_TIMEOUT_NO_EVIDENCE_MS);
     expect(FINISH_TIMEOUT_NO_EVIDENCE_MS).toBeLessThan(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
   });
 
@@ -72,6 +78,123 @@ describe('finishTimeoutMs', () => {
     expect(FINISH_TIMEOUT_WITH_EVIDENCE_MS).toBe(8_000);
     expect(FINISH_TIMEOUT_NO_EVIDENCE_MS).toBe(3_000);
     expect(FINISH_TIMEOUT_WITH_EVIDENCE_MS).toBeLessThan(45_000);
+  });
+
+  it('scriptedはunscriptedより短い（短文で確定が速く、batchフォールバックも実用的なため）', () => {
+    expect(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS).toBe(4_000);
+    expect(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS).toBeLessThan(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
+  });
+
+  it('nudge（close後の能動stop）はscriptedの確定待ちより前に発火する（不変条件）', () => {
+    expect(NUDGE_AFTER_CLOSE_MS).toBeLessThan(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS);
+  });
+
+  it('認識開始タイムアウトはsessionPromiseの無期限化を防ぐ有限値', () => {
+    expect(START_TIMEOUT_MS).toBe(10_000);
+  });
+});
+
+describe('resolveFinishSalvage', () => {
+  const phrase = (seconds: number) => ({ durationTicks: seconds * 1e7 });
+  const base = {
+    mode: 'unscripted' as const,
+    timedOut: true,
+    phrases: [] as { durationTicks: number }[],
+    audioSeconds: 6,
+    lastPartialText: '',
+    lastPartialEndSec: 0,
+  };
+
+  it('非タイムアウト・フレーズあり → scores（従来の正常確定）', () => {
+    expect(resolveFinishSalvage({ ...base, timedOut: false, phrases: [phrase(5)] })).toEqual({
+      kind: 'scores',
+    });
+  });
+
+  it('非タイムアウト・フレーズ0件 → throw-no-result（無音等）', () => {
+    expect(resolveFinishSalvage({ ...base, timedOut: false })).toEqual({ kind: 'throw-no-result' });
+  });
+
+  it('タイムアウト・フレーズ0件・新鮮な部分テキストあり → text-only（会話継続の最終サルベージ）', () => {
+    expect(
+      resolveFinishSalvage({ ...base, lastPartialText: ' hello there ', lastPartialEndSec: 5.5 }),
+    ).toEqual({ kind: 'text-only', text: 'hello there' });
+  });
+
+  it('タイムアウト・フレーズ0件・部分テキストなし → throw-timeout（従来どおりbatchへ）', () => {
+    expect(resolveFinishSalvage(base)).toEqual({ kind: 'throw-timeout' });
+  });
+
+  it('部分テキストの鮮度切れ（末尾が閾値超に欠落）→ text-onlyにしない（不完全発話への返信事故防止）', () => {
+    // 音声10s・部分テキストのカバー末尾5s → 尻尾5s > SALVAGE_MAX_UNCOVERED_TAIL_SEC(3s)
+    expect(
+      resolveFinishSalvage({
+        ...base,
+        audioSeconds: 10,
+        lastPartialText: 'stale text',
+        lastPartialEndSec: 5,
+      }),
+    ).toEqual({ kind: 'throw-timeout' });
+  });
+
+  it('未カバー末尾ちょうど閾値ぶんは新鮮扱い（inclusive・canSalvagePartialと対称）', () => {
+    // 音声6s・カバー末尾3s → 尻尾3s == SALVAGE_MAX_UNCOVERED_TAIL_SEC → fresh
+    expect(
+      resolveFinishSalvage({ ...base, lastPartialText: 'boundary text', lastPartialEndSec: 3 }),
+    ).toEqual({ kind: 'text-only', text: 'boundary text' });
+  });
+
+  it('空白のみの部分テキストは無いものとして扱う（throw-timeout）', () => {
+    expect(resolveFinishSalvage({ ...base, lastPartialText: '   ', lastPartialEndSec: 5.8 })).toEqual({
+      kind: 'throw-timeout',
+    });
+  });
+
+  it('scriptedはフレーズあり・末尾大欠けでもscores-with-tailに昇格しない（throw-no-result→batch）', () => {
+    expect(
+      resolveFinishSalvage({
+        ...base,
+        mode: 'scripted',
+        audioSeconds: 10,
+        phrases: [phrase(2)],
+        lastPartialText: 'fresh tail',
+        lastPartialEndSec: 9.5,
+      }),
+    ).toEqual({ kind: 'throw-no-result' });
+  });
+
+  it('scriptedは部分テキストがあっても救済しない（スコアが成果物）', () => {
+    expect(
+      resolveFinishSalvage({
+        ...base,
+        mode: 'scripted',
+        lastPartialText: 'the key phrase',
+        lastPartialEndSec: 5.8,
+      }),
+    ).toEqual({ kind: 'throw-timeout' });
+  });
+
+  it('タイムアウト・フレーズあり・末尾カバー良好 → scores（従来のスコア付きサルベージ）', () => {
+    expect(resolveFinishSalvage({ ...base, phrases: [phrase(4)] })).toEqual({ kind: 'scores' });
+  });
+
+  it('タイムアウト・フレーズあり・末尾大欠け・新鮮な部分テキストあり → scores-with-tail（尻尾を補完）', () => {
+    // 音声10s / フレーズカバー2s → 未カバー8s > 3s。部分テキストは末尾9.5sまでカバー → 新鮮
+    expect(
+      resolveFinishSalvage({
+        ...base,
+        audioSeconds: 10,
+        phrases: [phrase(2)],
+        lastPartialText: ' and the tail ',
+        lastPartialEndSec: 9.5,
+      }),
+    ).toEqual({ kind: 'scores-with-tail', tailText: 'and the tail' });
+  });
+
+  it('タイムアウト・フレーズあり・末尾大欠け・部分テキストなし → throw-no-result（従来どおりbatchへ）', () => {
+    expect(resolveFinishSalvage({ ...base, audioSeconds: 10, phrases: [phrase(2)] })).toEqual({
+      kind: 'throw-no-result',
+    });
   });
 });
 

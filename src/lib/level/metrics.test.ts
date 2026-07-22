@@ -81,6 +81,26 @@ describe('computeLessonMetrics', () => {
     expect(metrics.pronScore).toBe(60);
   });
 
+  it('azureError付きターン（スコア欠損）はpronScore平均から除外される', () => {
+    const failedPa: PaResult = { ...makePa(0), azureError: '発音スコアの取得がタイムアウトしました。' };
+    const turns: Turn[] = [
+      userTurn('hello there', { pa: makePa(80) }),
+      userTurn('salvaged text only', { pa: failedPa }),
+    ];
+    const metrics = computeLessonMetrics(turns, 0);
+    // 0点の欠損ターンで平均が汚染されず、有効な80がそのまま平均になる
+    expect(metrics.pronScore).toBe(80);
+  });
+
+  it('全音声ターンがazureError（スコア欠損）なら発音なし扱いで重みが再配分される', () => {
+    const failedPa: PaResult = { ...makePa(0), azureError: 'エラー' };
+    // grammar=100(誤り0), fluency=100(1000ms), complexity=100(12語) → 再配分で composite=100
+    const turns: Turn[] = [userTurn('a b c d e f g h i j k l', { pa: failedPa, thinkingMs: 1000 })];
+    const metrics = computeLessonMetrics(turns, 0);
+    expect(metrics.pronScore).toBe(0);
+    expect(metrics.composite).toBeCloseTo(100, 5);
+  });
+
   it('発音データが1件でもあれば通常加重（pron重み0.3）のまま（再配分しない）', () => {
     // pron=90(1件), grammar=100(誤り0), fluency=100(1000ms), complexity=100(12語)
     // composite = 0.3*90 + 0.3*100 + 0.2*100 + 0.2*100 = 27+30+20+20 = 97

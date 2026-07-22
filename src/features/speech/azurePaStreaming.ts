@@ -6,10 +6,13 @@
  * マイクの16kHz PCM16チャンクを逐次pushする。録音停止時は pushStream.close() して
  * 確定結果を待つだけになり、「発音を評価中」の体感が1〜2秒に短縮される。
  *
- * 失敗契約（DESIGN.md §6a）: このモジュールは**内部層としてthrowする**。
+ * 失敗契約（DESIGN.md §6a）: このモジュールは原則**内部層としてthrowする**。
  * 呼び出し側（voiceCapture.ts→useConversation）はthrow/失敗時に録音済みBlobから
  * 既存のbatch評価へ自動フォールバックする。「throwせずpa.azureErrorで返す」PaResult契約は
- * フォールバック先のassessSpeech（無変更）が最終的に保証する。
+ * フォールバック先のassessSpeechが最終的に保証する。
+ * 例外（M12補修）: unscriptedのタイムアウトで部分テキスト最終サルベージが成立する場合のみ、
+ * throwせず pa.azureError 入りの AssessSpeechResult を返す（resolveFinishSalvage 'text-only'。
+ * スコアは欠損だが会話は継続できる）。
  *
  * 韻律（プロソディ）: 当日キャッシュ（shouldSkipProsody・appState paProsodyFallback）で
  * 事前判定するのみで、ストリーミング内での韻律なしリトライは行わない（音声を再送できないため）。
@@ -31,6 +34,7 @@ import {
   AzureSpeechKeyMissingError,
   hasProsodyFailedInSession,
   isTransientPaError,
+  makeFailurePaResult,
   markProsodyFailureInSession,
   resolveRecognitionOutcome,
   shouldSkipProsody,
@@ -59,6 +63,8 @@ export interface StreamingPaSession {
   /**
    * ストリームを閉じて確定結果を待つ（多重呼び出しは同じPromiseを返す）。
    * 失敗（接続断・韻律非対応・結果ゼロ・タイムアウト）はthrowする（呼び出し側がbatchへ）。
+   * ただしunscriptedのタイムアウトで部分テキスト最終サルベージが成立する場合は、
+   * throwせず pa.azureError 入り（スコア欠損）で返す（ファイル冒頭の失敗契約参照）。
    */
   finish(): Promise<AssessSpeechResult>;
   /** セッションを破棄する（結果は返らない）。何度呼んでも安全。 */
@@ -120,8 +126,22 @@ export function prewarmSpeechSdk(): void {
  * 確定を待つ方がよい（全体は submitVoice の15秒デッドラインで必ず頭打ちになる）。
  */
 export const FINISH_TIMEOUT_WITH_EVIDENCE_MS = 8_000;
+/**
+ * scripted（キーフレーズ予習の短文・韻律あり）の確定待ち上限。close→確定は<0.4s実測で、
+ * batchフォールバックも短文なら数秒で終わるため、unscriptedのように8秒粘る理由がない
+ * （8秒はF0のbatchが無力なunscripted専用の粘り）。
+ */
+export const FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS = 4_000;
 /** 認識イベントが1件も無い（=WS死亡の疑い）ときの確定待ち上限。ゼロチャンク即断もあるため短めでよい。 */
 export const FINISH_TIMEOUT_NO_EVIDENCE_MS = 3_000;
+
+/**
+ * startContinuousRecognitionAsyncの完了待ち上限。WSハンドシェイクがハングすると成功・失敗どちらの
+ * コールバックも呼ばれず、voiceCapture側の sessionPromise 待ちが無期限化する（=「評価中」が
+ * 永遠に終わらない）ため、上限を張って必ず決着させる。タイムアウト時はcloseAll（事前openした
+ * WSの解放）のうえthrowし、呼び出し側がbatchへフォールバックする。
+ */
+export const START_TIMEOUT_MS = 10_000;
 
 /**
  * close後この時間まで確定しなければ、能動的に stopContinuousRecognitionAsync を叩いて
@@ -140,9 +160,14 @@ export const SALVAGE_MAX_UNCOVERED_TAIL_SEC = 3;
 /**
  * finishの確定待ちタイムアウトを決める純関数（DESIGN.md §6a-2）。
  * 進捗の証拠（recognizing/recognizedイベント）があれば、サルベージ前提でやや長めに待つ。
+ * scriptedは短文で確定が速くbatchも実用的なため、unscripted（8s）より短い上限（4s）にする。
  */
-export function finishTimeoutMs(hasRecognitionEvidence: boolean): number {
-  return hasRecognitionEvidence ? FINISH_TIMEOUT_WITH_EVIDENCE_MS : FINISH_TIMEOUT_NO_EVIDENCE_MS;
+export function finishTimeoutMs(
+  mode: 'unscripted' | 'scripted',
+  hasRecognitionEvidence: boolean,
+): number {
+  if (!hasRecognitionEvidence) return FINISH_TIMEOUT_NO_EVIDENCE_MS;
+  return mode === 'scripted' ? FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS : FINISH_TIMEOUT_WITH_EVIDENCE_MS;
 }
 
 /**
@@ -159,6 +184,57 @@ export function canSalvagePartial(
   if (phrases.length === 0) return false;
   const coveredSeconds = phrases.reduce((sum, p) => sum + Math.max(0, p.durationTicks), 0) / 1e7;
   return audioSeconds - coveredSeconds <= SALVAGE_MAX_UNCOVERED_TAIL_SEC;
+}
+
+/** finishの確定待ち終了後、結果をどう組み立てるかの判定結果（resolveFinishSalvage）。 */
+export type FinishSalvageDecision =
+  | { kind: 'scores' }
+  | { kind: 'scores-with-tail'; tailText: string }
+  | { kind: 'text-only'; text: string }
+  | { kind: 'throw-timeout' }
+  | { kind: 'throw-no-result' };
+
+/**
+ * finishの確定待ち終了後の結果組み立てを決める純関数（DESIGN.md §6a-2。Vitest対象）。
+ * 前提: recognitionErrorの伝播（フレーズ0件+エラー→throw）はresolveRecognitionOutcomeで処理済み。
+ *
+ * - 非タイムアウト（正常確定）: フレーズありなら 'scores'、0件なら 'throw-no-result'（無音等）
+ * - タイムアウト・フレーズあり:
+ *   - 末尾カバー良好（canSalvagePartial）→ 'scores'（従来のスコア付きサルベージ）
+ *   - 末尾が大きく欠け → unscriptedで新鮮な部分テキストがあれば 'scores-with-tail'
+ *     （スコアは確定分の実測のまま、認識テキストだけ尻尾を補完）。なければ 'throw-no-result'（batchへ）
+ * - タイムアウト・フレーズ0件: unscriptedで新鮮な部分テキストがあれば 'text-only'
+ *   （スコアなし・azureError入りでテキストだけ返し、会話を継続させる）。なければ 'throw-timeout'
+ * - 部分テキストの鮮度: partialEndSec（部分テキストがカバーする末尾位置）が総音声秒数より
+ *   SALVAGE_MAX_UNCOVERED_TAIL_SEC 超手前で止まっていれば「尻尾が大きく欠けた古いテキスト」と
+ *   みなして使わない（不完全な発話にAIが返信する事故の防止。canSalvagePartialと同じ思想）
+ * - scriptedは救済しない（スコアが成果物そのもの。短文なのでbatchフォールバックも速い）
+ */
+export function resolveFinishSalvage(opts: {
+  mode: 'unscripted' | 'scripted';
+  timedOut: boolean;
+  phrases: Pick<PhraseAssessment, 'durationTicks'>[];
+  audioSeconds: number;
+  lastPartialText: string;
+  lastPartialEndSec: number;
+}): FinishSalvageDecision {
+  const { mode, timedOut, phrases, audioSeconds, lastPartialText, lastPartialEndSec } = opts;
+  if (!timedOut) {
+    return phrases.length > 0 ? { kind: 'scores' } : { kind: 'throw-no-result' };
+  }
+  const partialFresh =
+    mode === 'unscripted' &&
+    lastPartialText.trim().length > 0 &&
+    audioSeconds - lastPartialEndSec <= SALVAGE_MAX_UNCOVERED_TAIL_SEC;
+  if (phrases.length === 0) {
+    return partialFresh ? { kind: 'text-only', text: lastPartialText.trim() } : { kind: 'throw-timeout' };
+  }
+  if (canSalvagePartial(phrases, audioSeconds)) {
+    return { kind: 'scores' };
+  }
+  return partialFresh
+    ? { kind: 'scores-with-tail', tailText: lastPartialText.trim() }
+    : { kind: 'throw-no-result' };
 }
 
 /**
@@ -222,6 +298,10 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   let bytesWritten = 0;
   let connectedMs: number | null = null;
   let firstEventMs: number | null = null;
+  /** 最終確定(recognized)以降の未確定テキスト（recognizing部分認識の最新値。最終サルベージ用）。 */
+  let lastPartialText = '';
+  /** lastPartialTextがカバーする音声末尾位置（100ns tick、offset+duration）。鮮度ガードに使う。 */
+  let lastPartialEndTicks = 0;
 
   // 認識セッションの終了（sessionStopped or エラー）を待つためのシグナル。
   let settleFn: (() => void) | null = null;
@@ -239,17 +319,36 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
     if (firstEventMs === null) firstEventMs = performance.now() - t0;
   };
 
-  recognizer.recognizing = () => markFirstEvent();
+  recognizer.recognizing = (_sender, e) => {
+    markFirstEvent();
+    // 確定(recognized)前の部分テキストを保持する。確定フレーズ0件のままタイムアウトしたとき、
+    // このテキストだけでも返して会話を継続させる（最終サルベージ。resolveFinishSalvage参照）。
+    if (e.result.text) {
+      lastPartialText = e.result.text;
+      lastPartialEndTicks = e.result.offset + e.result.duration;
+    }
+  };
   recognizer.recognized = (_sender, e) => {
     markFirstEvent();
-    if (e.result.reason !== SpeechSDK.ResultReason.RecognizedSpeech) return;
+    if (e.result.reason !== SpeechSDK.ResultReason.RecognizedSpeech) {
+      // NoMatch等でもこのセグメントは「確定」。Azureが棄却したテキスト（雑音の誤認識等）を
+      // 最終サルベージで拾わないよう、未確定の尻尾はここでもリセットする
+      // （不変条件: lastPartialText＝最終確定以降の未確定分）。
+      lastPartialText = '';
+      lastPartialEndTicks = 0;
+      return;
+    }
     try {
       const detail = SpeechSDK.PronunciationAssessmentResult.fromResult(e.result).detailResult;
       phrases.push(
         toPhraseAssessment(detail as unknown as AzureDetailResultLike, e.result.duration, e.result.text ?? ''),
       );
+      // フレーズを収集できたときだけ尻尾をリセットする（確定スコアとの二重取り防止）。
+      // パース失敗時はlastPartialTextを残し、最終サルベージでテキストだけでも拾えるようにする。
+      lastPartialText = '';
+      lastPartialEndTicks = 0;
     } catch {
-      // 個々のフレーズのパース失敗は無視して継続する。
+      // 個々のフレーズのパース失敗は無視して継続する（部分テキストは残す）。
     }
   };
   recognizer.canceled = (_sender, e) => {
@@ -314,9 +413,21 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   // 以降のターンのセッションがサーバ側で待たされる原因になる）。
   try {
     await new Promise<void>((resolve, reject) => {
+      // WSハンドシェイクがハングすると成功・失敗どちらのコールバックも呼ばれないため、
+      // 上限（START_TIMEOUT_MS）を張って必ず決着させる（sessionPromise無期限化＝「評価中」ハングの根）。
+      const startTimeoutId = setTimeout(
+        () => reject(new AzurePronunciationNetworkError('認識開始がタイムアウトしました')),
+        START_TIMEOUT_MS,
+      );
       recognizer.startContinuousRecognitionAsync(
-        () => resolve(),
-        (err) => reject(new AzurePronunciationNetworkError(String(err))),
+        () => {
+          clearTimeout(startTimeoutId);
+          resolve();
+        },
+        (err) => {
+          clearTimeout(startTimeoutId);
+          reject(new AzurePronunciationNetworkError(String(err)));
+        },
       );
     });
   } catch (err) {
@@ -350,8 +461,8 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
       state = nextSessionState(state, 'finishRequested');
       finishing = (async () => {
         const tClose = performance.now();
-        // 適応タイムアウト（DESIGN.md §6a-2）: 進捗の証拠の有無で待ち時間を変える。
-        const timeoutMs = finishTimeoutMs(firstEventMs !== null);
+        // 適応タイムアウト（DESIGN.md §6a-2）: モードと進捗の証拠の有無で待ち時間を変える。
+        const timeoutMs = finishTimeoutMs(opts.mode, firstEventMs !== null);
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         let nudgeId: ReturnType<typeof setTimeout> | undefined;
         let timedOut = false;
@@ -362,7 +473,16 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
           nudgeId = setTimeout(() => {
             swallowTeardownError('stopContinuousRecognitionAsync(nudge)', () => {
               recognizer.stopContinuousRecognitionAsync(
-                () => {},
+                () => {
+                  // stop成功＝サービス側の認識は停止済みで、以後sessionStoppedが来る保証はない。
+                  // 収集済みフレーズだけで末尾を取りこぼさず結果を組めるときのみ即settleし、
+                  // タイムアウト満了（8s/4s）まで待たずに確定させる。満たさなければ従来どおり
+                  // タイムアウト→サルベージ判定に委ねる。二重settleはsettledFlagガードで無害。
+                  if (canSalvagePartial(phrases, pcmBytesToSeconds(bytesWritten))) {
+                    logPaDebug('[stream] nudge stop成功→即settle');
+                    settle();
+                  }
+                },
                 () => {},
               );
             });
@@ -377,31 +497,66 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
               }, timeoutMs);
             }),
           ]);
-          // 部分結果サルベージ（DESIGN.md §6a-2）: タイムアウトでも、録音中に集めたフレーズがあり
-          // 末尾を大きく取りこぼしていなければ、それを集計して返す（batch再認識に落とさない）。
+          // 部分結果サルベージ（DESIGN.md §6a-2）: タイムアウトでも、録音中に集めたフレーズや
+          // recognizing部分テキストがあれば可能な限り結果を組んで返す（batch再認識に落とさない）。
           // 認識中エラーはフレーズがあれば警告のみ扱う（resolveRecognitionOutcomeの契約）。
           const resolved = resolveRecognitionOutcome(phrases, timedOut ? null : recognitionError);
-          if (resolved.length === 0) {
-            throw timedOut ? new AzurePronunciationTimeoutError() : new AzurePronunciationNoResultError();
+          const audioSecondsNow = pcmBytesToSeconds(bytesWritten);
+          const decision = resolveFinishSalvage({
+            mode: opts.mode,
+            timedOut,
+            phrases: resolved,
+            audioSeconds: audioSecondsNow,
+            lastPartialText,
+            lastPartialEndSec: lastPartialEndTicks / 1e7,
+          });
+          if (decision.kind === 'throw-timeout') {
+            // hadEvidence: 認識イベントの証拠なし（=WS沈黙死の疑い）なら、voiceCaptureの
+            // 失敗分類を'other'にしてbatchフォールバックを見送らせない（shouldSkipBatch参照）。
+            throw new AzurePronunciationTimeoutError(firstEventMs !== null);
           }
-          if (timedOut && !canSalvagePartial(resolved, pcmBytesToSeconds(bytesWritten))) {
-            const uncovered =
-              pcmBytesToSeconds(bytesWritten) -
-              resolved.reduce((s, p) => s + Math.max(0, p.durationTicks), 0) / 1e7;
-            logPaDebug(`[stream] サルベージ見送り 未カバー末尾${uncovered.toFixed(1)}s → batch`);
+          if (decision.kind === 'throw-no-result') {
+            if (timedOut && resolved.length > 0) {
+              const uncovered =
+                audioSecondsNow - resolved.reduce((s, p) => s + Math.max(0, p.durationTicks), 0) / 1e7;
+              logPaDebug(`[stream] サルベージ見送り 未カバー末尾${uncovered.toFixed(1)}s → batch`);
+            }
             throw new AzurePronunciationNoResultError();
           }
-          const result = aggregatePhraseAssessments(resolved, {
-            mode: opts.mode,
-            usedProsody: !skipProsody,
-          });
-          if (!result) throw new AzurePronunciationNoResultError();
+
+          let result: AssessSpeechResult;
+          if (decision.kind === 'text-only') {
+            // 確定フレーズ0件のタイムアウト: 部分認識テキストだけで会話を継続させる（最終サルベージ）。
+            // スコアはazureError入りの欠損として返し、消費側（スコアチップ非表示・metrics除外）に委ねる。
+            result = {
+              recognizedText: decision.text,
+              pa: makeFailurePaResult(opts.mode, new AzurePronunciationTimeoutError()),
+            };
+          } else {
+            const aggregated = aggregatePhraseAssessments(resolved, {
+              mode: opts.mode,
+              usedProsody: !skipProsody,
+            });
+            if (!aggregated) throw new AzurePronunciationNoResultError();
+            result =
+              decision.kind === 'scores-with-tail'
+                ? { ...aggregated, recognizedText: `${aggregated.recognizedText} ${decision.tailText}`.trim() }
+                : aggregated;
+          }
           state = nextSessionState(state, 'settledOk');
+          const salvageTag =
+            decision.kind === 'text-only'
+              ? '(text-salvage)'
+              : decision.kind === 'scores-with-tail'
+                ? '(salvage+tail)'
+                : timedOut
+                  ? '(salvage)'
+                  : '';
           const summary =
             `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms / ` +
             `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms / ` +
-            `close→確定 ${Math.round(performance.now() - tClose)}ms${timedOut ? '(salvage)' : ''} / ` +
-            `音声 ${pcmBytesToSeconds(bytesWritten).toFixed(1)}s / ${opts.mode} / ` +
+            `close→確定 ${Math.round(performance.now() - tClose)}ms${salvageTag} / ` +
+            `音声 ${audioSecondsNow.toFixed(1)}s / ${opts.mode} / ` +
             `韻律${skipProsody ? 'なし(スキップ)' : 'あり'}`;
           console.info(`[azurePaStreaming] ${summary}`);
           logPaDebug(`[stream] 確定 ${summary}`);

@@ -6,6 +6,7 @@ import {
   AzurePronunciationTimeoutError,
   AzureSpeechKeyMissingError,
   aggregatePhraseAssessments,
+  classifyProsodyFirstFailure,
   computeWeakPhonemes,
   describeAzureError,
   hasProsodyFailedInSession,
@@ -522,6 +523,54 @@ describe('isTransientPaError', () => {
     expect(isTransientPaError(new Error('bad request'))).toBe(false);
     expect(isTransientPaError('string')).toBe(false);
     expect(isTransientPaError(undefined)).toBe(false);
+  });
+});
+
+describe('classifyProsodyFirstFailure', () => {
+  it('デッドラインabort済みならリトライもガードも見送る', () => {
+    expect(classifyProsodyFirstFailure(new AzurePronunciationNetworkError('x'), true)).toEqual({
+      retry: false,
+      markGuard: false,
+    });
+    expect(classifyProsodyFirstFailure(new AzurePronunciationTimeoutError(), true)).toEqual({
+      retry: false,
+      markGuard: false,
+    });
+  });
+
+  it('非abortの一般失敗はリトライ+ガード（韻律非対応の疑い）', () => {
+    expect(classifyProsodyFirstFailure(new Error('bad request'), false)).toEqual({
+      retry: true,
+      markGuard: true,
+    });
+    expect(classifyProsodyFirstFailure(new AzurePronunciationNetworkError('x'), false)).toEqual({
+      retry: true,
+      markGuard: true,
+    });
+  });
+
+  it('無音・結果ゼロはリトライするがガードは立てない（韻律非対応の証拠にならない）', () => {
+    expect(classifyProsodyFirstFailure(new AzurePronunciationNoResultError(), false)).toEqual({
+      retry: true,
+      markGuard: false,
+    });
+  });
+
+  it('非abortのタイムアウトもリトライするがガードは立てない（stream側の方針と一致）', () => {
+    expect(classifyProsodyFirstFailure(new AzurePronunciationTimeoutError(), false)).toEqual({
+      retry: true,
+      markGuard: false,
+    });
+  });
+});
+
+describe('AzurePronunciationTimeoutError.hadEvidence', () => {
+  it('既定はtrue（証拠を追跡しない呼び出し元の従来挙動を維持）', () => {
+    expect(new AzurePronunciationTimeoutError().hadEvidence).toBe(true);
+  });
+
+  it('証拠ゼロ（WS沈黙死の疑い）はfalseを保持する', () => {
+    expect(new AzurePronunciationTimeoutError(false).hadEvidence).toBe(false);
   });
 });
 

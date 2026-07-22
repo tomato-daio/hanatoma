@@ -160,6 +160,29 @@ export function isTransientPaError(err: unknown): boolean {
 }
 
 /**
+ * 韻律あり1回目失敗後の分岐判定の純関数（DESIGN.md §6a）。
+ * - signalAborted（全体デッドライン発火済み）: 韻律なしリトライをしても即中断されるだけなので
+ *   行わず（無駄な認識1回とWS占有を省く）、セッションガードも立てない
+ *   （デッドライン超過は韻律非対応の証拠にならない）
+ * - 無音・結果ゼロ（NoResultError）とタイムアウト: リトライはするがガードは立てない
+ *   （どちらも韻律非対応の証拠にならない。stream側のガード方針「タイムアウトは韻律の是非と
+ *   無関係」と揃える）
+ */
+export function classifyProsodyFirstFailure(
+  firstErr: unknown,
+  signalAborted: boolean,
+): { retry: boolean; markGuard: boolean } {
+  if (signalAborted) return { retry: false, markGuard: false };
+  return {
+    retry: true,
+    markGuard: !(
+      firstErr instanceof AzurePronunciationNoResultError ||
+      firstErr instanceof AzurePronunciationTimeoutError
+    ),
+  };
+}
+
+/**
  * アプリセッション内の韻律失敗ガード（DESIGN.md §6a。M11補修）。
  * 韻律あり試行の失敗を1回でも観測したら、同一アプリセッション中は stream/batch とも
  * 韻律なしで直行する（当日キャッシュが書かれないネットワーク分類の失敗でも、
@@ -312,9 +335,19 @@ export function aggregatePhraseAssessments(
 // ---- エラー種別 ----
 
 export class AzurePronunciationTimeoutError extends Error {
-  constructor() {
+  /**
+   * タイムアウト時点で認識イベント（recognizing/recognized）を1件でも観測していたか。
+   * true=Azure側は処理中だった（batch再認識も間に合わない見込みが濃厚→見切り対象）。
+   * false=WS沈黙死の疑い（新規接続のbatchに正当性がある→見切らない）。
+   * voiceCaptureの失敗分類（shouldSkipBatch）が参照する。既定はtrue（batch側recognizeOnce等、
+   * 証拠を追跡しない呼び出し元の従来挙動を維持）。
+   */
+  readonly hadEvidence: boolean;
+
+  constructor(hadEvidence = true) {
     super('発音スコアの取得がタイムアウトしました。');
     this.name = 'AzurePronunciationTimeoutError';
+    this.hadEvidence = hadEvidence;
   }
 }
 
@@ -488,6 +521,20 @@ async function recognizeOnce(
   const audioConfig = SpeechSDK.AudioConfig.fromStreamInput(pushStream);
   const recognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
 
+  // WS残留対策（DESIGN.md §6a-2）: WebSocketを実際に切るのは Connection.closeConnection()
+  // （recognizer.close()はiOS Safariのteardown既知バグで不完全になりうる）。stream側closeAllと
+  // 同様にfinallyから確実に切断できるよう、ラッパーを先に取得しておく（batchでは事前openは不要）。
+  // 失敗中のbatchがWSを残すとF0無料枠の同時接続を塞ぎ、次ターンの認識まで遅くなる連鎖の原因になる。
+  let connection: import('microsoft-cognitiveservices-speech-sdk').Connection | null = null;
+  try {
+    connection = SpeechSDK.Connection.fromRecognizer(recognizer);
+  } catch (err) {
+    console.warn(
+      '[azurePaUnscripted] Connectionラッパーの取得に失敗しました（closeConnectionなしで後片付けします）。',
+      err,
+    );
+  }
+
   const pronunciationConfig = new SpeechSDK.PronunciationAssessmentConfig(
     opts.referenceText,
     SpeechSDK.PronunciationAssessmentGradingSystem.HundredMark,
@@ -629,6 +676,10 @@ async function recognizeOnce(
     });
   } finally {
     // close群の同期例外（iOS SafariのprivSource.turnOff内部バグ等）も評価の成否に影響させない。
+    // closeConnectionを最初に呼ぶ理由はstream側closeAll（azurePaStreaming.ts）と同じ:
+    // recognizer.closeが不完全でもWSを残留させず、F0無料枠の同時接続枠を確実に解放する。
+    swallowTeardownError('connection.closeConnection', () => connection?.closeConnection());
+    swallowTeardownError('connection.close', () => connection?.close());
     swallowTeardownError('recognizer.close', () => recognizer.close());
     swallowTeardownError('audioConfig.close', () => audioConfig.close());
     swallowTeardownError('speechConfig.close', () => speechConfig.close());
@@ -722,13 +773,20 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
           await config.clearPaProsodyFallback();
         }
       } catch (firstErr) {
+        // デッドラインabort時はリトライもガードも見送る（classifyProsodyFirstFailure参照）。
+        const verdict = classifyProsodyFirstFailure(firstErr, opts.signal?.aborted ?? false);
+        if (verdict.markGuard) {
+          markProsodyFailureInSession();
+        }
+        if (!verdict.retry) {
+          logPaDebug(
+            `[batch] 韻律あり 失敗 ${Math.round(performance.now() - t1)}ms (${errName(firstErr)}) デッドライン中断→リトライ見送り`,
+          );
+          throw firstErr;
+        }
         logPaDebug(
           `[batch] 韻律あり 失敗 ${Math.round(performance.now() - t1)}ms (${errName(firstErr)}) → 韻律なしリトライ`,
         );
-        // 無音・結果ゼロは韻律非対応の証拠にならないため、ガードは立てない。
-        if (!(firstErr instanceof AzurePronunciationNoResultError)) {
-          markProsodyFailureInSession();
-        }
         console.error(
           '[azurePaUnscripted] 韻律ありでの発音評価に失敗しました。韻律なしで1回だけ自動リトライします。',
           firstErr,

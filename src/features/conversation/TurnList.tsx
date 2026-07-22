@@ -47,6 +47,10 @@ export function TurnList({ turns, aiDraft, busy }: Props) {
                 発音 {Math.round(turn.pa.pronScore)}
               </span>
             )}
+            {turn.role === 'user' && turn.inputMode === 'voice' && turn.pa?.azureError && (
+              // 部分テキスト最終サルベージ等でスコアが取れなかった音声ターン（DESIGN.md §6a-2）。
+              <span className="mt-1 inline-block rounded-full bg-white/20 px-2 py-0.5 text-[11px]">スコアなし</span>
+            )}
             {turn.role === 'user' && turn.inputMode === 'text' && (
               <span className="mt-1 inline-block rounded-full bg-white/20 px-2 py-0.5 text-[11px]">⌨️ テキスト</span>
             )}
@@ -62,7 +66,7 @@ export function TurnList({ turns, aiDraft, busy }: Props) {
         </div>
       )}
 
-      {busy === 'assessing' && <AssessingIndicator className="justify-center" />}
+      {busy === 'assessing' && <AssessingIndicator className="items-center" />}
       {busy === 'thinking' && !aiDraft && <p className="text-center text-xs text-neutral-400">AIが考えています…</p>}
 
       <div ref={bottomRef} />

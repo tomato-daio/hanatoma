@@ -132,6 +132,19 @@ export function AzureSpeechSection() {
       ) : null}
 
       {status ? <p className={`text-xs ${status.ok ? 'text-green-700' : 'text-red-600'}`}>{status.message}</p> : null}
+
+      <div className="rounded-lg bg-neutral-50 px-3 py-2 text-[11px] leading-relaxed text-neutral-500">
+        <p className="font-semibold text-neutral-600">評価が遅い・タイムアウトする場合</p>
+        <p className="mt-1">
+          無料枠（F0）は発音評価の処理が混み合いやすく、会話の評価に時間がかかったり時間切れになることがあります。
+          Azureポータルで対象リソースの「価格レベル」からS0（標準）へ変更すると安定します（反映まで数時間かかることがあります）。
+          変更メニューが表示されない場合のみ、S0でリソースを作り直してキーを貼り替えてください。
+        </p>
+        <p className="mt-1">
+          費用の目安: 発音評価は音声1時間あたり約$1。このアプリの上限（1日30分）をすべて使っても月約$15（約2,300円）です。
+          あわせてAI音声の読み上げ（TTS）も無料枠から従量課金になりますが、通常の利用量では少額（月数十〜数百円）です。
+        </p>
+      </div>
     </div>
   );
 }

@@ -230,13 +230,17 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
   → lib/pcm.ts: 線形補間ダウンサンプル(実レート→16k・チャンク境界持ち越し) → PCM16
   → azurePaStreaming: SDK事前warm済→WS事前接続→continuous認識へ逐次push
 [録音停止] session.finish(): pushStream.close → 確定結果（体感1〜2秒）
-  タイムアウト（適応=認識イベントありなら4s・なければ3s）でも、録音中に集めた部分フレーズがあり
-  末尾を大きく取りこぼしていなければサルベージして返す（§6a-2。旧45s待ち→batch二重払いを廃し
-  体感~70秒→~5秒）。韻律初回失敗/接続断/結果ゼロ/サルベージ不可時のみ、録音Blobから従来のbatch経路
-  （decodeToMono16k→WAV→assessSpeech）へ自動フォールバック。
+  タイムアウト（適応=認識イベントありなら unscripted 8s / scripted 4s・なければ3s）でも、
+  録音中に集めた部分フレーズがあればサルベージ、確定フレーズ0件でも新鮮なrecognizing部分テキストが
+  あればスコア欠損（azureError入り）のテキストのみで返して会話を継続する（§6a-2 resolveFinishSalvage。
+  旧45s待ち→batch二重払いを廃止）。nudge(2s)のstop成功時はタイムアウトを待たず即settle。
+  韻律初回失敗/接続断/結果ゼロ/サルベージ不可時のみ、録音Blobから従来のbatch経路
+  （decodeToMono16k→WAV→assessSpeech）へ自動フォールバック。ただし確定待ちタイムアウト
+  かつ音声4秒超はbatchも間に合わない見込みが濃厚なため見送り即エラー表示（shouldSkipBatch）。
   PCMチャンクが1件も届いていない場合（worklet不動作）はセッション確立もタイムアウトも
   待たず即断でbatchへ（voiceCapture.finish先頭で判定）。
-  submitVoice全体は15sの全体デッドラインで包み、超過時はin-flight認識をabortして会話を止めない
+  全体デッドライン: submitVoice=15s / submitKeyPhrase=12s。signalはcapture.finish（voiceCapture層で
+  セッション確立待ち・確定待ちとrace）とbatchの両方へ貫通し、超過時はin-flight認識をabortして会話を止めない
   ↓ 認識テキストを即時表示
 [Claude Haiku] streaming で返答生成（§7a）。テキストは逐次表示
   ↓ 文境界ごとに
@@ -258,7 +262,7 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - 音声は WAV(16kHz mono PCM16) を pushStream で投入。60秒超対応のため continuous recognition で最後まで処理し、複数結果は**音声長加重でスコア統合**（shadotoma `azurePronunciation.ts` のロジック流用）。認識テキストは連結
 - **プロソディ・フォールバック**: 韻律有効で失敗したら韻律なしで1回だけ自動リトライ（japaneastで失敗実績あり）。両方失敗時のみエラー（`azureError` に errorDetails 先頭120字）
 - **韻律非対応の当日キャッシュ**（レイテンシ対策）: フォールバック成功時に appState `paProsodyFallback` = `{region, date(学習日)}` を記録し、**同日・同リージョンなら最初から韻律なし1回で実行**（毎ターン2回認識になるのを防ぐ）。学習日が変わると自動で再プローブ（Azureが韻律対応した際の自己回復。1日の最初のターンだけ2回になりうる）。1回目の失敗が一時障害系（`isTransientPaError`: ネットワーク/認証/タイムアウト）のときは書かない（誤学習防止）。韻律あり成功時はキャッシュ削除。キャッシュ読み書き（azureSpeechConfig.tsのget/set/clearヘルパー）は決してthrowせず評価の成否に影響させない
-- **セッション内韻律ガード**（M11補修）: 韻律あり試行の失敗（結果ゼロ除く）を1回でも観測したら、同一アプリセッション中は stream/batch とも韻律なしで直行する（当日キャッシュが書かれない一時障害分類の失敗でも二重試行の連鎖を防ぐ第二の防衛線）。リロードでリセット・韻律あり成功で解除。selftest診断パネルで現在値の確認とリセットが可能
+- **セッション内韻律ガード**（M11補修）: 韻律あり試行の失敗（結果ゼロ除く）を1回でも観測したら、同一アプリセッション中は stream/batch とも韻律なしで直行する（当日キャッシュが書かれない一時障害分類の失敗でも二重試行の連鎖を防ぐ第二の防衛線）。リロードでリセット・韻律あり成功で解除。selftest診断パネルで現在値の確認とリセットが可能。**全体デッドラインabort由来の失敗ではガードを立てず、韻律なしリトライも行わない**（純関数 `classifyProsodyFirstFailure`: signal.aborted時はリトライしても即中断されるだけ。非abortのタイムアウトもNoResult同様ガード対象外——タイムアウトは韻律非対応の証拠にならない、というstream側と同方針。M12補修）
 - 音素スコアを集計し `weakPhonemes`（低スコア音素トップ3: 記号・平均点・例語最大2）を保存
 - PAエラー時も会話は継続する（認識テキストが取れなければ「聞き取れませんでした。もう一度どうぞ」表示。Haikuは呼ばない）
 - **フレーズヒント**（認識精度向上）: `assessSpeech` は `phraseHints?: string[]` を受け取り、`PhraseListGrammar.fromRecognizer(recognizer).addPhrases()` で認識エンジンに渡す。会話ターンでは `buildPhraseHints(scenario, ctx: {phase, stepIndex})`（`src/features/conversation/phraseHints.ts`・純関数・Vitest必須）で**文脈に絞って**組み立てる: ガイド中=キーフレーズ英文+現在stepのmodelAnswerのみ、それ以外（フリー会話等）=キーフレーズ英文のみ。⚠️全stepsの模範解答（長文8〜10件）を一括で渡すと認識がヒント文へ引っ張られる over-biasing の実害があったため、範囲を広げないこと。ヒントは重複除去（大文字小文字無視）・空除去のうえ最大40件
@@ -269,10 +273,13 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - **録音開始時に** SDK import（useConversationマウント時にprewarmSpeechSdkで事前ロード済み）→ WS事前接続（Connection.openConnection）→ continuous認識開始まで済ませ、マイクの16k PCM16（`lib/pcm.ts` の決定的リサンプラ+`recorder/pcmTapWorklet.ts` のAudioWorkletで生成）を逐次push。停止時は close→確定待ちのみ
 - **失敗契約**: このモジュールは内部層としてthrowする。呼び出し側（`conversation/voiceCapture.ts`→useConversation）が録音Blobからbatch(assessSpeech)へ自動フォールバックし、「throwせずazureErrorで返す」PaResult契約はbatchが最終保証する
 - **韻律**: 当日キャッシュ+セッション内ガード（§6a）で事前判定。ストリーミング内での韻律なしリトライはしない（音声を再送できない）。**韻律起因（非一時障害・非結果ゼロ）の失敗時はthrow前に当日キャッシュをawaitで書き込み**、直後のbatchフォールバックを韻律なし1回にする（「stream失敗+batch2回」の三重連鎖を断つ。M11補修）
-- **後片付け（M11補修）**: WebSocketを実際に切るのは `Connection.closeConnection()`（`close()`はラッパー破棄のみ）。closeAllは closeConnection→connection.close→recognizer.close→audioConfig→speechConfig の順（iOS teardownバグでrecognizer.closeが不完全でもWSを残留させず、F0無料枠の同時接続を塞がない）。**認識開始失敗時もcloseAllを必ず呼ぶ**（呼ばないと事前openしたWSがリークし後続ターンを遅くする）
+- **後片付け（M11補修）**: WebSocketを実際に切るのは `Connection.closeConnection()`（`close()`はラッパー破棄のみ）。closeAllは closeConnection→connection.close→recognizer.close→audioConfig→speechConfig の順（iOS teardownバグでrecognizer.closeが不完全でもWSを残留させず、F0無料枠の同時接続を塞がない）。**認識開始失敗時もcloseAllを必ず呼ぶ**（呼ばないと事前openしたWSがリークし後続ターンを遅くする）。**batch側 `recognizeOnce` のfinallyも同順のテアダウンを実施**（M12補修。従来はrecognizer.closeのみで、iOSのteardownバグ時に失敗batchのWSが残留し次ターンの失敗連鎖を招いていた）
+- **認識開始タイムアウト（M12補修）**: `startContinuousRecognitionAsync` は WSハンドシェイクがハングすると成功・失敗どちらのコールバックも呼ばれない。`START_TIMEOUT_MS=10秒` でrace し、超過時は closeAll→throw（voiceCapture の sessionPromise 待ちが無期限化して「評価中」がハングする根を断つ）
 - **韻律はscriptedのみ（M12・実測対応）**: F0無料枠では**unscripted（自由会話・長音声）の韻律採点でclose→確定が音声長ぶん7〜16秒**に膨らむ（scriptedの短文は<0.4sで確定）。会話ターン（unscripted）は `enableProsodyAssessment=false` に固定して確定を高速化する（pron/accuracy/fluencyは維持、prosodyScoreはundefined）。キーフレーズ予習（scripted）は従来どおり韻律あり。batch側も同様。※これでも遅い場合、根本要因はF0のスループット上限でありS0への変更が確実な解
-- **適応finishタイムアウト＋部分結果サルベージ（M12）**: 純関数 `finishTimeoutMs` — 証拠（recognizing/recognized）ありで8秒・無しで3秒（旧45/10秒は最大~70秒固まる原因だった）。batchフォールバックはF0の自由会話では60秒級で実質無力なため、8秒まで確定を粘って待つ（全体は submitVoiceの15秒デッドラインで頭打ち）。タイムアウトしても**録音中に集めたフレーズを捨てずサルベージ**する（純関数 `canSalvagePartial`: 未カバー末尾がSALVAGE_MAX_UNCOVERED_TAIL_SEC=3秒以内ならOK、超えれば末尾切れの疑いでbatch）。close後NUDGE_AFTER_CLOSE_MS=2秒で `stopContinuousRecognitionAsync` を能動的に叩き、ストールしたsessionStoppedを引き出す（nudge）。タイムアウトは韻律の是非と無関係なので韻律ガードは立てない
-- **全体デッドライン（M12）**: submitVoice側で PA_DEADLINE_MS=15秒の AbortController を張り、streaming確定+batchの合計が長引いたら in-flight 認識を abort（batch側は `AssessSpeechOptions.signal`→recognizeOnce で停止）。race敗者放置でF0のWSを掴み続け失敗連鎖になるのを防ぐ。batch側 `RECOGNITION_TIMEOUT_MS` も120→20秒に短縮
+- **適応finishタイムアウト＋部分結果サルベージ（M12）**: 純関数 `finishTimeoutMs(mode, hasEvidence)` — 証拠（recognizing/recognized）ありで unscripted 8秒 / scripted 4秒・無しで3秒（旧45/10秒は最大~70秒固まる原因だった。scriptedは短文で確定<0.4s・batchも速いため8秒粘る理由がなく短縮）。batchフォールバックはF0の自由会話では60秒級で実質無力なため、unscriptedは8秒まで確定を粘って待つ（全体は submitVoiceの15秒デッドラインで頭打ち）。タイムアウトしても**録音中に集めたフレーズを捨てずサルベージ**する（純関数 `canSalvagePartial`: 未カバー末尾がSALVAGE_MAX_UNCOVERED_TAIL_SEC=3秒以内ならOK）。close後NUDGE_AFTER_CLOSE_MS=2秒で `stopContinuousRecognitionAsync` を能動的に叩き、ストールしたsessionStoppedを引き出す（nudge）。**nudgeのstop成功時、収集済みフレーズでcanSalvagePartialを満たせば即settle**し、タイムアウト満了を待たない（M12補修。ストール時8秒→約2〜3秒）。タイムアウトは韻律の是非と無関係なので韻律ガードは立てない
+- **部分テキスト最終サルベージ（M12補修・unscriptedのみ）**: `recognizing` の部分認識テキスト（最終確定以降の未確定の尻尾）を保持し、結果の組み立ては純関数 `resolveFinishSalvage` で3段階判定する。(a)確定フレーズあり・末尾カバー良好→従来のスコア付きサルベージ (b)確定フレーズあり・末尾3秒超欠け→スコアは確定分の実測のまま認識テキストだけ尻尾を連結 (c)**確定フレーズ0件のタイムアウト→部分テキストだけを `pa.azureError` 入り（スコア欠損）で返し、会話を継続させる**（従来はbatch→15秒デッドライン超過→エラー・ターン破棄で言い直しだった）。部分テキストの鮮度（カバー末尾が総音声秒数−3秒以上）を満たさない場合は使わない（不完全発話へのAI返信事故防止）。scriptedはスコアが成果物のため(b)(c)とも対象外。スコア欠損ターンは TurnList で「スコアなし」チップ表示・`metrics.ts` のpron平均から除外（azureError付きpaは集計しない）
+- **batch見切り（M12補修・unscriptedのみ）**: 純関数 `shouldSkipBatch(failure, audioSeconds)`（voiceCapture.ts）— streamの失敗種別が確定待ちタイムアウト（`lastFailure()==='timeout'`）かつ音声がBATCH_SKIP_MIN_AUDIO_SEC=4秒超なら、F0ではbatchもデッドライン内に完了する見込みが薄いため試みず即エラー表示（「7秒無駄に待って同じエラー」を「即言い直し」に変える）。セッション開始失敗・WS死亡・ゼロチャンク等（'other'）は従来どおりbatchへ。タイムアウトの分類は `AzurePronunciationTimeoutError.hadEvidence`（認識イベントを1件でも観測していたか）で行い、**証拠ゼロ（WS沈黙死の疑い・3秒タイムアウト）はhadEvidence=false→'other'** として新規接続のbatchを妨げない
+- **全体デッドライン（M12）**: submitVoice側で PA_DEADLINE_UNSCRIPTED_MS=15秒、**submitKeyPhrase側で PA_DEADLINE_SCRIPTED_MS=12秒**（M12補修。従来scriptedは上限なしで最悪48秒級だった）の AbortController を張り、streaming確定+batchの合計が長引いたら in-flight 認識を abort。signalは **`capture.finish(signal)`（voiceCapture層でセッション確立待ち・確定待ちの両方とrace。従来はfinishが返るまで中断できなかった）** と batch `AssessSpeechOptions.signal`→recognizeOnce の両方へ貫通する。race敗者放置でF0のWSを掴み続け失敗連鎖になるのを防ぐ。batch側 `RECOGNITION_TIMEOUT_MS` も120→20秒に短縮
 - **PA診断ログ**: 主要イベント（開始・接続/初回認識/確定ms・失敗理由・batch各試行）を `paDebugLog.ts` 経由で appState `paDebugLog` に記録し、selftest「6. 直近のPA診断ログ」で閲覧・コピー・クリアできる（iPhoneでのconsole代替・障害報告の一次情報）
 - iOS teardownバグ対策（swallowTeardownError）・resolveRecognitionOutcome・aggregatePhraseAssessments は azurePaUnscripted.ts と共有
 - セッション状態遷移は純関数 nextSessionState（Vitest）。usageLog加算はstream/batchどちらか一方のみ

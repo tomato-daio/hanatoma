@@ -26,11 +26,18 @@ export function AssessingIndicator({
   }, []);
 
   return (
-    <div className={`flex items-center gap-2 text-xs text-neutral-400 ${className}`}>
-      <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-neutral-300 border-t-hana-500" />
-      <span>
-        {label}… {elapsedSec}秒
-      </span>
+    // 整列は呼び出し側に委ねる（items-centerを固定すると、左寄せ前提のKeyPhrasePanelで
+    // この要素だけ中央に寄ってしまう。中央にしたい呼び出し側はclassNameでitems-centerを渡す）。
+    <div className={`flex flex-col gap-1 ${className}`}>
+      <div className="flex items-center gap-2 text-xs text-neutral-400">
+        <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-neutral-300 border-t-hana-500" />
+        <span>
+          {label}… {elapsedSec}秒
+        </span>
+      </div>
+      {elapsedSec >= 6 && (
+        <p className="text-[11px] text-neutral-400">時間がかかっています…（無料枠では混み合うことがあります）</p>
+      )}
     </div>
   );
 }

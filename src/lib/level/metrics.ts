@@ -75,7 +75,9 @@ function linearScore(value: number, x0: number, y0: number, x1: number, y1: numb
 /**
  * turnsとgrammarErrorCountからLessonMetrics（composite含む）を算出する（DESIGN.md §8b）。
  *
- * - pronScore: ユーザーの音声ターン（pa あり）のPA総合(pronScore)の平均。音声ターンが無ければ0
+ * - pronScore: ユーザーの音声ターン（pa あり）のPA総合(pronScore)の平均。音声ターンが無ければ0。
+ *   azureError付きターン（スコア欠損。部分テキストサルベージ等でスコア0のまま保存される）は
+ *   0点で平均を汚染しないよう除外する。全ターンが欠損なら reweightWithoutPron が効く
  * - grammarErrorRate: grammarErrorCount / ユーザー総語数 × 100。総語数0なら0（誤りようがないため）
  * - thinkingTimeMs: thinkingMsの中央値。値が無ければ0（= fluencyComponentは満点側）
  * - meanUtteranceWords: ユーザー発話の平均語数。ユーザーターンが無ければ0
@@ -84,7 +86,9 @@ function linearScore(value: number, x0: number, y0: number, x1: number, y1: numb
 export function computeLessonMetrics(turns: Turn[], grammarErrorCount: number): LessonMetrics {
   const userTurns = turns.filter((t) => t.role === 'user');
 
-  const pronScores = userTurns.filter((t) => t.pa !== undefined).map((t) => t.pa!.pronScore);
+  const pronScores = userTurns
+    .filter((t) => t.pa !== undefined && t.pa.azureError === undefined)
+    .map((t) => t.pa!.pronScore);
   const pronScore = average(pronScores);
 
   const userWordCounts = userTurns.map((t) => countWords(t.text));

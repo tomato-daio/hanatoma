@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AssessSpeechResult } from '../speech/azurePaUnscripted';
+import { AzurePronunciationTimeoutError, type AssessSpeechResult } from '../speech/azurePaUnscripted';
 import type { StreamingPaSession } from '../speech/azurePaStreaming';
-import { beginVoiceCapture } from './voiceCapture';
+import { BATCH_SKIP_MIN_AUDIO_SEC, beginVoiceCapture, shouldSkipBatch } from './voiceCapture';
 
 const FAKE_RESULT: AssessSpeechResult = {
   recognizedText: 'hello world',
@@ -161,5 +161,185 @@ describe('beginVoiceCapture', () => {
     expect(written.length).toBe(1);
     expect(written[0]).toBeGreaterThan(3100);
     expect(written[0]).toBeLessThan(3300);
+  });
+
+  it('finish(signal): 事前にabort済みなら即null（session.finish未呼出・セッション破棄）', async () => {
+    const { session } = makeFakeSession();
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
+    deferred.resolve(session);
+    await Promise.resolve();
+
+    const controller = new AbortController();
+    controller.abort();
+    expect(await capture.finish(controller.signal)).toBeNull();
+    expect(session.finish).not.toHaveBeenCalled();
+    expect(session.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('finish(signal): セッション確立待ち中のabortでnullが返り、遅延確立後に破棄される', async () => {
+    const { session } = makeFakeSession();
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
+
+    const controller = new AbortController();
+    const finishing = capture.finish(controller.signal); // sessionPromise未解決のまま待ちに入る
+    controller.abort();
+    expect(await finishing).toBeNull();
+
+    // 遅れて確立してもabort済みとして破棄される
+    deferred.resolve(session);
+    await Promise.resolve();
+    expect(session.abort).toHaveBeenCalledTimes(1);
+    expect(session.finish).not.toHaveBeenCalled();
+  });
+
+  it('finish(signal): 確定待ち（session.finishが永久pending）中のabortでnullが返り破棄される', async () => {
+    const neverFinish = vi.fn(() => new Promise<AssessSpeechResult>(() => {}));
+    const { session } = makeFakeSession({ finish: neverFinish });
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
+    deferred.resolve(session);
+    await Promise.resolve();
+
+    const controller = new AbortController();
+    const finishing = capture.finish(controller.signal);
+    await Promise.resolve(); // session.finish呼び出しまで進める
+    controller.abort();
+    expect(await finishing).toBeNull();
+    expect(neverFinish).toHaveBeenCalledTimes(1);
+    expect(session.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('finish(signal): abortされず成功したら結果を返し、後からのabort()にも二重破棄しない', async () => {
+    const { session } = makeFakeSession();
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
+    deferred.resolve(session);
+
+    const controller = new AbortController();
+    expect(await capture.finish(controller.signal)).toBe(FAKE_RESULT);
+    controller.abort(); // リスナーは除去済みなので何も起きない
+    expect(session.abort).not.toHaveBeenCalled();
+  });
+
+  it('finish(signal): abortリスナーは成功・失敗の両経路で対に除去される', async () => {
+    // 成功経路
+    const okSession = makeFakeSession();
+    const okDeferred = makeDeferredStart();
+    const okCapture = beginVoiceCapture(OPTS, { startStreamingPa: okDeferred.start });
+    okCapture.onAudioChunk(chunkOf(100), 16000);
+    okDeferred.resolve(okSession.session);
+    const okController = new AbortController();
+    const okAdd = vi.spyOn(okController.signal, 'addEventListener');
+    const okRemove = vi.spyOn(okController.signal, 'removeEventListener');
+    await okCapture.finish(okController.signal);
+    expect(okAdd).toHaveBeenCalledTimes(1);
+    expect(okRemove).toHaveBeenCalledWith('abort', okAdd.mock.calls[0][1]);
+
+    // 失敗経路（session.finishがreject）
+    const ngSession = makeFakeSession({
+      finish: vi.fn(async (): Promise<never> => {
+        throw new Error('boom');
+      }),
+    });
+    const ngDeferred = makeDeferredStart();
+    const ngCapture = beginVoiceCapture(OPTS, { startStreamingPa: ngDeferred.start });
+    ngCapture.onAudioChunk(chunkOf(100), 16000);
+    ngDeferred.resolve(ngSession.session);
+    const ngController = new AbortController();
+    const ngAdd = vi.spyOn(ngController.signal, 'addEventListener');
+    const ngRemove = vi.spyOn(ngController.signal, 'removeEventListener');
+    await ngCapture.finish(ngController.signal);
+    expect(ngRemove).toHaveBeenCalledWith('abort', ngAdd.mock.calls[0][1]);
+  });
+
+  it('デッドラインabortによるnullは失敗分類しない（lastFailure=null、shouldSkipBatch非発火）', async () => {
+    const neverFinish = vi.fn(() => new Promise<AssessSpeechResult>(() => {}));
+    const { session } = makeFakeSession({ finish: neverFinish });
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
+    deferred.resolve(session);
+    await Promise.resolve();
+
+    const controller = new AbortController();
+    const finishing = capture.finish(controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    expect(await finishing).toBeNull();
+    expect(capture.lastFailure()).toBeNull();
+  });
+
+  it('lastFailure: 確定待ちタイムアウトは timeout、その他の失敗は other に分類される', async () => {
+    // timeout
+    const timeoutFinish = vi.fn(async (): Promise<never> => {
+      throw new AzurePronunciationTimeoutError();
+    });
+    const a = makeFakeSession({ finish: timeoutFinish });
+    const da = makeDeferredStart();
+    const captureA = beginVoiceCapture(OPTS, { startStreamingPa: da.start });
+    captureA.onAudioChunk(chunkOf(100), 16000);
+    da.resolve(a.session);
+    expect(captureA.lastFailure()).toBeNull(); // finish前はnull
+    expect(await captureA.finish()).toBeNull();
+    expect(captureA.lastFailure()).toBe('timeout');
+
+    // other（一般エラー）
+    const otherFinish = vi.fn(async (): Promise<never> => {
+      throw new Error('connection died');
+    });
+    const b = makeFakeSession({ finish: otherFinish });
+    const db = makeDeferredStart();
+    const captureB = beginVoiceCapture(OPTS, { startStreamingPa: db.start });
+    captureB.onAudioChunk(chunkOf(100), 16000);
+    db.resolve(b.session);
+    expect(await captureB.finish()).toBeNull();
+    expect(captureB.lastFailure()).toBe('other');
+
+    // other（セッション開始失敗）
+    const dc = makeDeferredStart();
+    const captureC = beginVoiceCapture(OPTS, { startStreamingPa: dc.start });
+    captureC.onAudioChunk(chunkOf(100), 16000);
+    dc.reject(new Error('key missing'));
+    expect(await captureC.finish()).toBeNull();
+    expect(captureC.lastFailure()).toBe('other');
+  });
+
+  it('lastFailure: ゼロチャンク即断は other（worklet不動作→batchが正当）', async () => {
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    expect(await capture.finish()).toBeNull();
+    expect(capture.lastFailure()).toBe('other');
+  });
+
+  it('lastFailure: 証拠ゼロのタイムアウト（hadEvidence=false=WS沈黙死疑い）は other（batchへ行かせる）', async () => {
+    const silentTimeout = vi.fn(async (): Promise<never> => {
+      throw new AzurePronunciationTimeoutError(false);
+    });
+    const { session } = makeFakeSession({ finish: silentTimeout });
+    const deferred = makeDeferredStart();
+    const capture = beginVoiceCapture(OPTS, { startStreamingPa: deferred.start });
+    capture.onAudioChunk(chunkOf(100), 16000);
+    deferred.resolve(session);
+    expect(await capture.finish()).toBeNull();
+    expect(capture.lastFailure()).toBe('other');
+  });
+});
+
+describe('shouldSkipBatch', () => {
+  it('確定待ちタイムアウト かつ 音声が閾値超 のときだけbatchを見送る', () => {
+    expect(shouldSkipBatch('timeout', BATCH_SKIP_MIN_AUDIO_SEC + 1)).toBe(true);
+    expect(shouldSkipBatch('timeout', BATCH_SKIP_MIN_AUDIO_SEC)).toBe(false); // 閾値ちょうどは実行
+    expect(shouldSkipBatch('timeout', 1)).toBe(false);
+  });
+
+  it('timeout以外の失敗はbatchを実行する（新規接続のbatchに正当性がある）', () => {
+    expect(shouldSkipBatch('other', 100)).toBe(false);
+    expect(shouldSkipBatch(null, 100)).toBe(false);
   });
 });
