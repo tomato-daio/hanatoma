@@ -41,6 +41,7 @@ import { prewarmSpeechSdk } from '../speech/azurePaStreaming';
 import { logPaDebug } from '../speech/paDebugLog';
 import { getAnthropicApiKey } from '../settings/anthropicKeyConfig';
 import { nextAiTurn } from '../llm/haikuPartner';
+import { stripStageDirections } from '../llm/sanitizeAiText';
 import type { RecordingResult } from '../recorder/useRecorder';
 import { getScenarioById } from '../scenarios/loadScenarios';
 import { buildPhraseHints } from './phraseHints';
@@ -244,26 +245,32 @@ export function useConversation(conversationId: string | undefined): UseConversa
         onText: (delta) => {
           if (firstTextAt === null) firstTextAt = performance.now();
           fullText += delta;
-          setAiDraft(fullText);
+          // ト書き（*nods* 等の演技描写）は表示・読み上げの前に除去する（§7a。プロンプトで
+          // 禁止済みだが混入時の防御。stripStageDirectionsは未閉鎖の末尾*...も伏せる）。
+          setAiDraft(stripStageDirections(fullText));
           sentenceBuffer += delta;
           const { complete, rest } = splitSentences(sentenceBuffer);
           sentenceBuffer = rest;
           for (const sentence of complete) {
+            const spoken = stripStageDirections(sentence);
+            if (!spoken) continue; // ト書きだけの文は読み上げない
             if (speechStartAt === null) speechStartAt = performance.now();
-            queue.enqueue(sentence);
+            queue.enqueue(spoken);
           }
         },
       });
 
       // 残りの断片も読み上げる
-      if (sentenceBuffer.trim()) {
+      const spokenRest = stripStageDirections(sentenceBuffer);
+      if (spokenRest) {
         if (speechStartAt === null) speechStartAt = performance.now();
-        queue.enqueue(sentenceBuffer);
+        queue.enqueue(spokenRest);
       }
 
       const aiTurn: Turn = {
         role: 'ai',
-        text: result.text.trim(),
+        // 保存もト書き除去後のテキストにする（履歴に残すと以降のターンでHaikuが真似るため）。
+        text: stripStageDirections(result.text),
         at: Date.now(),
         phase: curPhase,
       };

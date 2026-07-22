@@ -301,7 +301,8 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 ### 7a. 会話パートナー（Haiku, streaming）`haikuPartner.ts`
 - model: `claude-haiku-4-5`。max_tokens: 200。stream: true（SSE。fetch ReadableStreamでパース）
 - system は2ブロック構成で **prompt caching**: [共通ルール（不変・`cache_control: {type:'ephemeral'}`）] + [シナリオ+レベルパラメータ（レッスン中不変・cache_control）]。会話履歴は messages で毎回送る
-- 共通ルールの要点: あなたはシナリオのaiRoleを演じる / 返答は1〜3文・レベル語彙制約(§8d) / ユーザーの英語の誤りは**会話中は直さない**（理解できたら会話を続ける。全く理解できない時だけ聞き返す）/ ゴール達成に向けて自然に誘導 / ガイドフェーズでは現在のstepのaiIntentに従う
+- 共通ルールの要点: あなたはシナリオのaiRoleを演じる / **発話のみ（ト書き・仕草・表情の描写・絵文字・アスタリスク禁止）** / 返答は1〜3文・レベル語彙制約(§8d) / ユーザーの英語の誤りは**会話中は直さない**（理解できたら会話を続ける。全く理解できない時だけ聞き返す）/ ゴール達成に向けて自然に誘導 / ガイドフェーズでは現在のstepのaiIntentに従う
+- **ト書き除去の防御層**: プロンプト禁止にもかかわらず混入した `*nods with a smile*` 等の演技描写は、純関数 `stripStageDirections`（`sanitizeAiText.ts`・Vitest）で表示(aiDraft)・TTS読み上げ・Turn保存の全経路から除去する（履歴に残すと以降のターンでHaikuが真似るため保存前に落とす）。複数語の`*...*`と既知の仕草1語（smiles等）は除去、それ以外の1語は強調とみなし語だけ残す。マーカー無しの裸のト書きはプロンプト側で抑止
 - 履歴が20ターンを超えたら古いターンを1行要約に畳む（コスト対策）
 
 ### 7b. 精密添削（Sonnet, tool use強制）`sonnetCorrection.ts`
