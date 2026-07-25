@@ -120,6 +120,23 @@ export function pcmBytesToSeconds(bytes: number): number {
 }
 
 /**
+ * 認識の「純粋な遅れ」秒を求める純関数（診断用。DESIGN.md §6a-2）。
+ *
+ * 初回認識の壁時計（最初のPCM書き込みからの経過）から、その認識結果が音声の何秒目の
+ * 発話だったか（Azureが返す offset）を引く。マイクを押してから話し出すまでの無音時間が
+ * 差し引かれるため、「音声の届き＋サービス側処理がどれだけ実時間から遅れているか」だけが残る。
+ * 0.5秒前後ならストリーミングは健全（無音で待っていただけ）。数秒あれば送信経路かサービス側が
+ * 実時間に追いついていない。値が揃わない場合はnull。
+ */
+export function recognitionLagSeconds(
+  firstEventFromWriteMs: number | null,
+  firstEventAudioOffsetSec: number | null,
+): number | null {
+  if (firstEventFromWriteMs === null || firstEventAudioOffsetSec === null) return null;
+  return firstEventFromWriteMs / 1000 - firstEventAudioOffsetSec;
+}
+
+/**
  * Speech SDKチャンクの事前読み込み（約100KB gz）。会話画面のマウント時に呼び、
  * 初回録音時のSDK動的importコストを排除する。失敗は無視する（実行時に再importされる）。
  */
@@ -330,6 +347,10 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
    * 大きく上回る場合はPCMの二重流入（タップ多重張り等）やサンプルレート不整合を疑う。
    */
   let firstWriteMs: number | null = null;
+  /** 初回認識イベントの「最初のPCM書き込みからの経過ms」（診断用。recognitionLagSeconds）。 */
+  let firstEventFromWriteMs: number | null = null;
+  /** 初回認識イベントが音声の何秒目の発話だったか（Azureのoffset。無音待ちの差し引きに使う）。 */
+  let firstEventAudioOffsetSec: number | null = null;
   /** 最終確定(recognized)以降の未確定テキスト（recognizing部分認識の最新値。最終サルベージ用）。 */
   let lastPartialText = '';
   /** lastPartialTextがカバーする音声末尾位置（100ns tick、offset+duration）。鮮度ガードに使う。 */
@@ -347,12 +368,22 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   });
   const settle = () => settleFn?.();
 
-  const markFirstEvent = () => {
-    if (firstEventMs === null) firstEventMs = performance.now() - t0;
+  /**
+   * 初回認識イベントの時刻と、その結果が音声の何秒目だったか（Azureのoffset）を記録する。
+   * 両方あれば recognitionLagSeconds で「無音待ちを除いた純粋な遅れ」が出せる（診断用）。
+   */
+  const markFirstEvent = (audioOffsetTicks?: number) => {
+    if (firstEventMs === null) {
+      firstEventMs = performance.now() - t0;
+      if (firstWriteMs !== null) firstEventFromWriteMs = performance.now() - firstWriteMs;
+      if (typeof audioOffsetTicks === 'number' && audioOffsetTicks >= 0) {
+        firstEventAudioOffsetSec = audioOffsetTicks / 1e7;
+      }
+    }
   };
 
   recognizer.recognizing = (_sender, e) => {
-    markFirstEvent();
+    markFirstEvent(e.result.offset);
     // 確定(recognized)前の部分テキストを保持する。確定フレーズ0件のままタイムアウトしたとき、
     // このテキストだけでも返して会話を継続させる（最終サルベージ。resolveFinishSalvage参照）。
     if (e.result.text) {
@@ -361,7 +392,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
     }
   };
   recognizer.recognized = (_sender, e) => {
-    markFirstEvent();
+    markFirstEvent(e.result.offset);
     if (e.result.reason !== SpeechSDK.ResultReason.RecognizedSpeech) {
       // NoMatch等でもこのセグメントは「確定」。Azureが棄却したテキスト（雑音の誤認識等）を
       // 最終サルベージで拾わないよう、未確定の尻尾はここでもリセットする
@@ -433,6 +464,12 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   // 後片付け（DESIGN.md §6a-2）: WebSocketを実際に切るのは connection.closeConnection()
   // （close()はラッパー破棄のみ）。iOSのteardownバグでrecognizer.close()が不完全でも
   // WSが残留してF0無料枠の同時接続を塞がないよう、closeConnectionを最初に呼ぶ。
+  /** 診断ログ用の「無音待ちを除いた認識遅れ」表示（recognitionLagSeconds。'?'は算出不能）。 */
+  const lagLabel = (): string => {
+    const lag = recognitionLagSeconds(firstEventFromWriteMs, firstEventAudioOffsetSec);
+    return lag === null ? '?' : `${lag.toFixed(1)}s`;
+  };
+
   const closeAll = () => {
     swallowTeardownError('connection.closeConnection', () => connection?.closeConnection());
     swallowTeardownError('connection.close', () => connection?.close());
@@ -587,7 +624,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
                   : '';
           const summary =
             `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms / ` +
-            `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms / ` +
+            `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms(無音除く遅れ ${lagLabel()}) / ` +
             `close→確定 ${Math.round(performance.now() - tClose)}ms${salvageTag} / ` +
             `音声 ${audioSecondsNow.toFixed(1)}s(実時間 ${liveSeconds(firstWriteMs, tClose)}) / ${opts.mode} / ` +
             `韻律${skipProsody ? 'なし(スキップ)' : 'あり'}`;
@@ -614,7 +651,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
           }
           logPaDebug(
             `[stream] 失敗 ${err instanceof Error ? `${err.name}: ${truncateDetail(err.message)}` : String(err)} ` +
-              `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms 初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : 'なし'} ` +
+              `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms 初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : 'なし'}(無音除く遅れ ${lagLabel()}) ` +
               `書込${Math.round(bytesWritten / 1024)}KB(音声${pcmBytesToSeconds(bytesWritten).toFixed(1)}s/実時間${liveSeconds(firstWriteMs, tClose)})`,
           );
           throw err;

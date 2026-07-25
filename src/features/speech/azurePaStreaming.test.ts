@@ -9,6 +9,7 @@ import {
   nextSessionState,
   NUDGE_AFTER_CLOSE_MS,
   pcmBytesToSeconds,
+  recognitionLagSeconds,
   resolveFinishSalvage,
   SALVAGE_MAX_UNCOVERED_TAIL_SEC,
   START_TIMEOUT_MS,
@@ -104,6 +105,22 @@ describe('finishTimeoutMs', () => {
 
   it('認識開始タイムアウトはsessionPromiseの無期限化を防ぐ有限値', () => {
     expect(START_TIMEOUT_MS).toBe(10_000);
+  });
+});
+
+describe('recognitionLagSeconds', () => {
+  it('初回認識の壁時計から音声内の発話位置を引き、無音待ちを除いた遅れを出す', () => {
+    // 押してから2.5秒黙り、そこから話し始め、3.0秒時点で初回認識が届いた → 純粋な遅れ0.5秒
+    expect(recognitionLagSeconds(3000, 2.5)).toBeCloseTo(0.5);
+  });
+
+  it('無音がなく壁時計だけ遅れている場合は遅れがそのまま出る（配信・処理が実時間に追いつけていない）', () => {
+    expect(recognitionLagSeconds(8000, 0.5)).toBeCloseTo(7.5);
+  });
+
+  it('値が揃わなければnull（認識イベントゼロ・書き込みゼロ）', () => {
+    expect(recognitionLagSeconds(null, 2.5)).toBeNull();
+    expect(recognitionLagSeconds(3000, null)).toBeNull();
   });
 });
 
