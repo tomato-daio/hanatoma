@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canSalvagePartial,
+  FINISH_TIMEOUT_MAX_MS,
   FINISH_TIMEOUT_NO_EVIDENCE_MS,
   FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS,
   FINISH_TIMEOUT_WITH_EVIDENCE_MS,
@@ -80,6 +81,18 @@ describe('finishTimeoutMs', () => {
     expect(FINISH_TIMEOUT_WITH_EVIDENCE_MS).toBeLessThan(45_000);
   });
 
+  it('unscriptedは音声長に連動して待つ（8秒下限・13秒上限。F0の確定遅延は音声長に比例）', () => {
+    expect(finishTimeoutMs('unscripted', true, 3.4)).toBe(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
+    expect(finishTimeoutMs('unscripted', true, 12.7)).toBe(12_700);
+    expect(finishTimeoutMs('unscripted', true, 40)).toBe(FINISH_TIMEOUT_MAX_MS);
+    // 全体デッドライン（submitVoiceの15秒）を超えない上限であること
+    expect(FINISH_TIMEOUT_MAX_MS).toBeLessThan(15_000);
+    // scriptedは音声長に関係なく短い上限のまま（スコアが成果物・batchも短文なら実用的）
+    expect(finishTimeoutMs('scripted', true, 12.7)).toBe(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS);
+    // 証拠なし（WS沈黙死の疑い）は音声長に関係なく即見切る
+    expect(finishTimeoutMs('unscripted', false, 12.7)).toBe(FINISH_TIMEOUT_NO_EVIDENCE_MS);
+  });
+
   it('scriptedはunscriptedより短い（短文で確定が速く、batchフォールバックも実用的なため）', () => {
     expect(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS).toBe(4_000);
     expect(FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS).toBeLessThan(FINISH_TIMEOUT_WITH_EVIDENCE_MS);
@@ -150,7 +163,7 @@ describe('resolveFinishSalvage', () => {
     });
   });
 
-  it('scriptedはフレーズあり・末尾大欠けでもscores-with-tailに昇格しない（throw-no-result→batch）', () => {
+  it('scriptedはフレーズあり・末尾大欠けでもscores-with-tailに昇格しない（timeoutで返す。短文なのでbatchは走る）', () => {
     expect(
       resolveFinishSalvage({
         ...base,
@@ -160,7 +173,7 @@ describe('resolveFinishSalvage', () => {
         lastPartialText: 'fresh tail',
         lastPartialEndSec: 9.5,
       }),
-    ).toEqual({ kind: 'throw-no-result' });
+    ).toEqual({ kind: 'throw-timeout' });
   });
 
   it('scriptedは部分テキストがあっても救済しない（スコアが成果物）', () => {
@@ -191,9 +204,11 @@ describe('resolveFinishSalvage', () => {
     ).toEqual({ kind: 'scores-with-tail', tailText: 'and the tail' });
   });
 
-  it('タイムアウト・フレーズあり・末尾大欠け・部分テキストなし → throw-no-result（従来どおりbatchへ）', () => {
+  it('タイムアウト・フレーズあり・末尾大欠け・部分テキストなし → throw-timeout（batchも間に合わないので見送らせる）', () => {
+    // Azureが末尾を処理中のまま時間切れ。同じ音声を送り直すbatchは残り時間で完了しない実測のため、
+    // no-result（=batchへ）ではなくtimeout種別で返し、shouldSkipBatchでbatchを飛ばさせる。
     expect(resolveFinishSalvage({ ...base, audioSeconds: 10, phrases: [phrase(2)] })).toEqual({
-      kind: 'throw-no-result',
+      kind: 'throw-timeout',
     });
   });
 });

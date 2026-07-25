@@ -4,7 +4,7 @@
  * 80点以上で✓。スキップ自由（学習を止めないことを最優先）。
  */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { getAppState } from '../../lib/db';
 import { getLevelParams } from '../../lib/level/params';
 import type { AppLevel, PaResult, Scenario } from '../../lib/types';
@@ -46,6 +46,8 @@ export function KeyPhrasePanel({
   const [playing, setPlaying] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
   const recorder = useRecorder({ onAudioChunk });
+  /** 録音開始/停止タップの連打ガード（recordを参照）。 */
+  const tapBusyRef = useRef(false);
 
   const phrase = scenario.keyPhrases[index];
   const isLast = index >= scenario.keyPhrases.length - 1;
@@ -76,22 +78,29 @@ export function KeyPhrasePanel({
   };
 
   const record = async () => {
-    if (!phrase) return;
-    if (!recorder.isRecording) {
-      // 録音開始前にキャップ判定とscriptedストリーミング評価の開始を行う（M11）
-      const ok = await beginKeyPhrase(phrase.en);
-      if (!ok) return;
-      await recorder.start();
-      return;
-    }
-    const recording = await recorder.stop();
-    if (!recording) {
-      cancelVoiceCapture();
-      return;
-    }
-    const pa = await submitKeyPhrase(phrase.en, recording);
-    if (pa) {
-      setResults((prev) => prev.map((r, i) => (i === index ? pa : r)));
+    if (!phrase || tapBusyRef.current) return;
+    // 連打ガード（M12補修）: beginKeyPhraseのawait中はisRecordingがまだfalseで、
+    // 2回目のタップが同じ「開始」経路へ入り評価セッションを二重に張ってしまう。
+    tapBusyRef.current = true;
+    try {
+      if (!recorder.isRecording) {
+        // 録音開始前にキャップ判定とscriptedストリーミング評価の開始を行う（M11）
+        const ok = await beginKeyPhrase(phrase.en);
+        if (!ok) return;
+        await recorder.start();
+        return;
+      }
+      const recording = await recorder.stop();
+      if (!recording) {
+        cancelVoiceCapture();
+        return;
+      }
+      const pa = await submitKeyPhrase(phrase.en, recording);
+      if (pa) {
+        setResults((prev) => prev.map((r, i) => (i === index ? pa : r)));
+      }
+    } finally {
+      tapBusyRef.current = false;
     }
   };
 

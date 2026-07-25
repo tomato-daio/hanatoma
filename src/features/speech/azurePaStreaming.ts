@@ -105,6 +105,15 @@ export function nextSessionState(
   }
 }
 
+/**
+ * 診断ログ用: 最初のPCM書き込みからclose までの実経過秒（'?'は書き込みなし）。
+ * バイト数から算出した音声秒数がこれを大きく超えていたら、PCMの二重流入や
+ * サンプルレート不整合を疑う（M12補修でマイクタップ多重張りを検出した指標）。
+ */
+function liveSeconds(firstWriteMs: number | null, tClose: number): string {
+  return firstWriteMs === null ? '?' : `${((tClose - firstWriteMs) / 1000).toFixed(1)}s`;
+}
+
 /** 16kHz mono PCM16のバイト数→秒数（32000バイト/秒）。純関数。 */
 export function pcmBytesToSeconds(bytes: number): number {
   return bytes / 32000;
@@ -126,6 +135,14 @@ export function prewarmSpeechSdk(): void {
  * 確定を待つ方がよい（全体は submitVoice の15秒デッドラインで必ず頭打ちになる）。
  */
 export const FINISH_TIMEOUT_WITH_EVIDENCE_MS = 8_000;
+/**
+ * unscriptedの確定待ち上限の上限側（音声長連動の頭打ち。DESIGN.md §6a-2）。
+ * F0の確定遅延は音声長にほぼ比例して伸びる（実測: 音声3.4s→close→確定3.4s、
+ * 音声12.7s→8秒でも末尾5.3s未確定）。長い発話ほど待つ側に寄せた方が、
+ * 「8秒で見切ってbatch（残り時間で完了しない）」より結果が返る確率が高い。
+ * submitVoiceの15秒デッドラインを超えないよう13秒で頭打ちにする。
+ */
+export const FINISH_TIMEOUT_MAX_MS = 13_000;
 /**
  * scripted（キーフレーズ予習の短文・韻律あり）の確定待ち上限。close→確定は<0.4s実測で、
  * batchフォールバックも短文なら数秒で終わるため、unscriptedのように8秒粘る理由がない
@@ -160,14 +177,22 @@ export const SALVAGE_MAX_UNCOVERED_TAIL_SEC = 3;
 /**
  * finishの確定待ちタイムアウトを決める純関数（DESIGN.md §6a-2）。
  * 進捗の証拠（recognizing/recognizedイベント）があれば、サルベージ前提でやや長めに待つ。
- * scriptedは短文で確定が速くbatchも実用的なため、unscripted（8s）より短い上限（4s）にする。
+ * scriptedは短文で確定が速くbatchも実用的なため、unscriptedより短い上限（4s）にする。
+ * unscriptedは音声長に連動させ、8秒（下限）〜13秒（上限）の範囲で待つ:
+ * F0の確定遅延は音声長にほぼ比例するため、長い発話を8秒固定で見切るとbatch（残り時間で
+ * 完了しない）に落ちて必ずエラーになっていた。audioSeconds未指定なら従来の8秒。
  */
 export function finishTimeoutMs(
   mode: 'unscripted' | 'scripted',
   hasRecognitionEvidence: boolean,
+  audioSeconds = 0,
 ): number {
   if (!hasRecognitionEvidence) return FINISH_TIMEOUT_NO_EVIDENCE_MS;
-  return mode === 'scripted' ? FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS : FINISH_TIMEOUT_WITH_EVIDENCE_MS;
+  if (mode === 'scripted') return FINISH_TIMEOUT_SCRIPTED_WITH_EVIDENCE_MS;
+  return Math.min(
+    FINISH_TIMEOUT_MAX_MS,
+    Math.max(FINISH_TIMEOUT_WITH_EVIDENCE_MS, Math.round(audioSeconds * 1000)),
+  );
 }
 
 /**
@@ -202,7 +227,10 @@ export type FinishSalvageDecision =
  * - タイムアウト・フレーズあり:
  *   - 末尾カバー良好（canSalvagePartial）→ 'scores'（従来のスコア付きサルベージ）
  *   - 末尾が大きく欠け → unscriptedで新鮮な部分テキストがあれば 'scores-with-tail'
- *     （スコアは確定分の実測のまま、認識テキストだけ尻尾を補完）。なければ 'throw-no-result'（batchへ）
+ *     （スコアは確定分の実測のまま、認識テキストだけ尻尾を補完）。なければ 'throw-timeout'
+ *     — Azureは末尾を処理中のまま時間切れなので、同じ音声を送り直すbatchも残り時間で
+ *     完了しない（実測: 7秒待って必ずデッドライン失敗）。timeout種別で返して
+ *     shouldSkipBatchにbatchを見送らせ、無駄な待ちを足さず即「言い直し」へ回す
  * - タイムアウト・フレーズ0件: unscriptedで新鮮な部分テキストがあれば 'text-only'
  *   （スコアなし・azureError入りでテキストだけ返し、会話を継続させる）。なければ 'throw-timeout'
  * - 部分テキストの鮮度: partialEndSec（部分テキストがカバーする末尾位置）が総音声秒数より
@@ -232,9 +260,7 @@ export function resolveFinishSalvage(opts: {
   if (canSalvagePartial(phrases, audioSeconds)) {
     return { kind: 'scores' };
   }
-  return partialFresh
-    ? { kind: 'scores-with-tail', tailText: lastPartialText.trim() }
-    : { kind: 'throw-no-result' };
+  return partialFresh ? { kind: 'scores-with-tail', tailText: lastPartialText.trim() } : { kind: 'throw-timeout' };
 }
 
 /**
@@ -298,6 +324,12 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
   let bytesWritten = 0;
   let connectedMs: number | null = null;
   let firstEventMs: number | null = null;
+  /**
+   * 最初のPCM書き込み時刻（診断用）。マイクは実時間で流入するため、
+   * 「バイト数から算出した音声秒数」は close までの実経過時間をわずかに下回るのが正常。
+   * 大きく上回る場合はPCMの二重流入（タップ多重張り等）やサンプルレート不整合を疑う。
+   */
+  let firstWriteMs: number | null = null;
   /** 最終確定(recognized)以降の未確定テキスト（recognizing部分認識の最新値。最終サルベージ用）。 */
   let lastPartialText = '';
   /** lastPartialTextがカバーする音声末尾位置（100ns tick、offset+duration）。鮮度ガードに使う。 */
@@ -446,6 +478,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
       if (pcm16.byteLength === 0) return;
       try {
         pushStream.write(pcm16);
+        if (firstWriteMs === null) firstWriteMs = performance.now();
         bytesWritten += pcm16.byteLength;
       } catch (err) {
         console.warn('[azurePaStreaming] pushStream.writeに失敗しました（このチャンクは破棄されます）。', err);
@@ -461,8 +494,8 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
       state = nextSessionState(state, 'finishRequested');
       finishing = (async () => {
         const tClose = performance.now();
-        // 適応タイムアウト（DESIGN.md §6a-2）: モードと進捗の証拠の有無で待ち時間を変える。
-        const timeoutMs = finishTimeoutMs(opts.mode, firstEventMs !== null);
+        // 適応タイムアウト（DESIGN.md §6a-2）: モード・進捗の証拠の有無・音声長で待ち時間を変える。
+        const timeoutMs = finishTimeoutMs(opts.mode, firstEventMs !== null, pcmBytesToSeconds(bytesWritten));
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         let nudgeId: ReturnType<typeof setTimeout> | undefined;
         let timedOut = false;
@@ -511,16 +544,16 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
             lastPartialEndSec: lastPartialEndTicks / 1e7,
           });
           if (decision.kind === 'throw-timeout') {
+            if (resolved.length > 0) {
+              const uncovered =
+                audioSecondsNow - resolved.reduce((s, p) => s + Math.max(0, p.durationTicks), 0) / 1e7;
+              logPaDebug(`[stream] サルベージ見送り 未カバー末尾${uncovered.toFixed(1)}s（末尾が欠けるため採用しない）`);
+            }
             // hadEvidence: 認識イベントの証拠なし（=WS沈黙死の疑い）なら、voiceCaptureの
             // 失敗分類を'other'にしてbatchフォールバックを見送らせない（shouldSkipBatch参照）。
             throw new AzurePronunciationTimeoutError(firstEventMs !== null);
           }
           if (decision.kind === 'throw-no-result') {
-            if (timedOut && resolved.length > 0) {
-              const uncovered =
-                audioSecondsNow - resolved.reduce((s, p) => s + Math.max(0, p.durationTicks), 0) / 1e7;
-              logPaDebug(`[stream] サルベージ見送り 未カバー末尾${uncovered.toFixed(1)}s → batch`);
-            }
             throw new AzurePronunciationNoResultError();
           }
 
@@ -556,7 +589,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
             `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms / ` +
             `初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : '?'}ms / ` +
             `close→確定 ${Math.round(performance.now() - tClose)}ms${salvageTag} / ` +
-            `音声 ${audioSecondsNow.toFixed(1)}s / ${opts.mode} / ` +
+            `音声 ${audioSecondsNow.toFixed(1)}s(実時間 ${liveSeconds(firstWriteMs, tClose)}) / ${opts.mode} / ` +
             `韻律${skipProsody ? 'なし(スキップ)' : 'あり'}`;
           console.info(`[azurePaStreaming] ${summary}`);
           logPaDebug(`[stream] 確定 ${summary}`);
@@ -582,7 +615,7 @@ export async function startStreamingPa(opts: StreamingPaOptions): Promise<Stream
           logPaDebug(
             `[stream] 失敗 ${err instanceof Error ? `${err.name}: ${truncateDetail(err.message)}` : String(err)} ` +
               `接続 ${connectedMs !== null ? Math.round(connectedMs) : '?'}ms 初回認識 ${firstEventMs !== null ? Math.round(firstEventMs) : 'なし'} ` +
-              `書込${Math.round(bytesWritten / 1024)}KB`,
+              `書込${Math.round(bytesWritten / 1024)}KB(音声${pcmBytesToSeconds(bytesWritten).toFixed(1)}s/実時間${liveSeconds(firstWriteMs, tClose)})`,
           );
           throw err;
         } finally {

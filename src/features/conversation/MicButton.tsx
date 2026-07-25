@@ -5,6 +5,7 @@
  * 親（useConversation.submitVoice）へ渡す。録音中のPCMは onAudioChunk へ流れる（M11）。
  */
 
+import { useRef } from 'react';
 import { useRecorder, type RecordingResult } from '../recorder/useRecorder';
 
 interface Props {
@@ -21,16 +22,26 @@ interface Props {
 export function MicButton({ disabled, onRecordStart, onAudioChunk, onResult, onAborted }: Props) {
   const { isRecording, elapsedSec, level, error, start, stop } = useRecorder({ onAudioChunk });
 
+  // 連打ガード（M12補修）: onRecordStart（キャップ判定・評価セッション開始）をawaitする間は
+  // isRecordingがまだfalseなので、2回目のタップが同じ「開始」経路へ入ってしまう。
+  // stateではなくrefで弾く（再レンダリング前のクロージャでも確実に効く）。
+  const tapBusyRef = useRef(false);
+
   const handleTap = async () => {
-    if (disabled) return;
-    if (!isRecording) {
-      const ok = await onRecordStart();
-      if (!ok) return;
-      await start();
-    } else {
-      const result = await stop();
-      if (result) onResult(result);
-      else onAborted();
+    if (disabled || tapBusyRef.current) return;
+    tapBusyRef.current = true;
+    try {
+      if (!isRecording) {
+        const ok = await onRecordStart();
+        if (!ok) return;
+        await start();
+      } else {
+        const result = await stop();
+        if (result) onResult(result);
+        else onAborted();
+      }
+    } finally {
+      tapBusyRef.current = false;
     }
   };
 

@@ -190,7 +190,12 @@ export function useRecorder(options?: UseRecorderOptions): UseRecorderResult {
   }, [cleanupStream]);
 
   const start = useCallback(async () => {
-    if (busyRef.current || isRecording) return;
+    // 多重起動の判定にstate（isRecording）を使うと、直前のタップで開始済みでも
+    // 再レンダリング前のクロージャでは false のままで通ってしまい、2本目のマイク
+    // ストリームとPCMタップが張られる（1本目はrefを上書きされて解放されないまま
+    // 残留し、以降ずっと同じ音声が二重にストリーミング評価へ流れる）。
+    // 録音中は必ず streamRef が非nullなので、refだけで判定する。
+    if (busyRef.current || streamRef.current) return;
     busyRef.current = true;
     setError(null);
     chunksRef.current = [];
@@ -223,12 +228,15 @@ export function useRecorder(options?: UseRecorderOptions): UseRecorderResult {
         // resume失敗は致命的にしない（レベルメーターが動かない程度に留める）
       }
       if (disposedRef.current) {
-        stream.getTracks().forEach((track) => track.stop());
+        // streamRefへ格納済みなのでcleanupStreamで解放する（refをnullに戻さないと
+        // start()冒頭のstreamRefガードが以降ずっと録音開始を弾いてしまう）。
+        cleanupStream();
         return;
       }
       if (abortedRef.current) {
         // resume()待ち中にhandleTrackAbortが発火し、後始末済み。ここで配線・start()を行うと
         // 状態が矛盾するため何もせずreturnする（再録音はstart()冒頭のabortedRefリセットで可能）。
+        cleanupStream();
         return;
       }
 
@@ -246,7 +254,7 @@ export function useRecorder(options?: UseRecorderOptions): UseRecorderResult {
         try {
           await ensurePcmTapModule(audioCtx);
           if (disposedRef.current || abortedRef.current) {
-            stream.getTracks().forEach((track) => track.stop());
+            cleanupStream();
             return;
           }
           const tap = createPcmTapNode(audioCtx, (chunk) => {
@@ -307,7 +315,7 @@ export function useRecorder(options?: UseRecorderOptions): UseRecorderResult {
     } finally {
       busyRef.current = false;
     }
-  }, [cleanupStream, monitorLevel, isRecording, handleTrackAbort]);
+  }, [cleanupStream, monitorLevel, handleTrackAbort]);
 
   const stop = useCallback((): Promise<RecordingResult | null> => {
     return new Promise((resolve) => {
