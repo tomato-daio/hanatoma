@@ -129,6 +129,18 @@ function describeSttError(err: unknown): string {
   return truncateDetail(err instanceof Error ? err.message : String(err));
 }
 
+/**
+ * 音声認識が使えなかったときの案内文の純関数。1006（WebSocketのハンドシェイク拒否）は
+ * キー・リージョンの誤り、今月の無料枠の使い切り、通信の遮断のどれかであることが多い。
+ */
+export function sttFailureNotice(err: unknown): string {
+  const detail = describeSttError(err);
+  if (/1006/.test(detail)) {
+    return `Azure Speechに接続できませんでした。設定のAzureキーとリージョン、今月の無料枠（月5時間）、通信状況を確認して「再開」をタップしてください（${detail}）。`;
+  }
+  return `音声認識でエラーが発生しました（${detail}）。「再開」をタップしてください。`;
+}
+
 /** Float32チャンクのRMSから0〜1の表示レベルを求める純関数。 */
 export function levelFromChunk(chunk: Float32Array): number {
   if (chunk.length === 0) return 0;
@@ -150,6 +162,10 @@ interface Segment {
   resampler: LinearResamplerState | null;
   finishing: boolean;
   closed: boolean;
+  /** 認識結果（部分・確定）を1件でも受け取ったか。 */
+  sawEvent: boolean;
+  /** 接続失敗後の自動再接続を済ませたか（1回だけ）。 */
+  retried: boolean;
 }
 
 interface UtteranceAudio {
@@ -371,11 +387,43 @@ export function createLiveTalkController(
       resampler: null,
       finishing: false,
       closed: false,
+      sawEvent: false,
+      retried: false,
     };
     current = seg;
     ensureMic();
+    connectStt(seg);
+  }
+
+  /** このセグメントでここまでに録った音声（再接続時に最初から送り直す）。 */
+  function segmentAudioSoFar(seg: Segment): ArrayBuffer {
+    const all = concatBytes(utter.chunks, utter.bytes);
+    return all.slice(seg.byteStart).buffer;
+  }
+
+  /**
+   * STTへの接続が、認識結果を1件も返す前に失敗した: 1回だけ自動で張り直し、ここまでの音声を送り直す
+   * （区切り指定が拒否された場合は azureStt 側が区切りなしに切り替える）。2回目の失敗は一時停止＋案内。
+   */
+  function onSttFailure(seg: Segment, err: unknown): void {
+    if (seg.closed || current !== seg) return;
+    if (!seg.sawEvent && !seg.retried && !seg.finishing) {
+      seg.retried = true;
+      seg.stt?.abort();
+      seg.stt = null;
+      const replay = segmentAudioSoFar(seg);
+      seg.pending = replay.byteLength > 0 ? [replay] : [];
+      connectStt(seg);
+      return;
+    }
+    host.notify(sttFailureNotice(err));
+    dispatch({ type: 'sttError' });
+  }
+
+  function connectStt(seg: Segment): void {
     const onRecognition = (kind: 'partial' | 'final', text: string, offsetMs: number, durationMs: number) => {
       if (seg.closed || current !== seg) return;
+      seg.sawEvent = true;
       if (text.trim()) {
         const start = seg.byteStart + offsetMs * BYTES_PER_MS;
         const end = seg.byteStart + (offsetMs + durationMs) * BYTES_PER_MS;
@@ -384,6 +432,14 @@ export function createLiveTalkController(
       }
       dispatch({ type: kind, text, segmentAudioStartAt: seg.startAt ?? deps.now(), offsetMs, durationMs });
     };
+    let session: LiveSttSession | null = null;
+    // 1回の接続で「開始失敗」と「開始中のキャンセル」の両方が届きうるため、失敗の処理は1回だけにする。
+    let attemptFailed = false;
+    const failOnce = (err: unknown) => {
+      if (attemptFailed) return;
+      attemptFailed = true;
+      onSttFailure(seg, err);
+    };
     seg.ready = deps
       .startStt({
         phraseHints: host.phraseHintsNow(),
@@ -391,13 +447,13 @@ export function createLiveTalkController(
         onPartial: (t, o, d) => onRecognition('partial', t, o, d),
         onFinal: (t, o, d) => onRecognition('final', t, o, d),
         onError: (err) => {
-          if (seg.closed || current !== seg) return;
-          host.notify(`音声認識でエラーが発生しました（${describeSttError(err)}）。「再開」をタップしてください。`);
-          dispatch({ type: 'sttError' });
+          // 再接続後に古い接続から届いたエラーは無視する。
+          if (session === null || seg.stt === session) failOnce(err);
         },
       })
       .then(
         (stt) => {
+          session = stt;
           if (seg.closed) {
             stt.abort();
             return null;
@@ -409,10 +465,7 @@ export function createLiveTalkController(
           return stt;
         },
         (err: unknown) => {
-          if (!seg.closed && current === seg) {
-            host.notify(`音声認識を開始できませんでした（${describeSttError(err)}）。「再開」をタップしてください。`);
-            dispatch({ type: 'sttError' });
-          }
+          failOnce(err);
           return null;
         },
       );
