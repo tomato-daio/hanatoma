@@ -10,7 +10,7 @@ AI英会話アウトプット練習PWA。**個人利用・低ランニングコ�
 
 - 個人情報（本名・実年齢・勤務先・個人メール）をコード・コメント・package.json author等に一切書かない。作者名義は `tomato-daio`。
 - 学習データ・録音は**端末内(IndexedDB)のみ**。外部送信は次の3つに限る（いずれもユーザー自身のAPIキーで、送信内容は必要最小限）:
-  1. **Azure Speech**: 発音評価対象の発話音声+参照テキスト、TTS用の合成テキスト
+  1. **Azure Speech**: 会話中の発話音声（音声認識。M13）、発音評価対象の発話音声+参照テキスト、TTS用の合成テキスト
   2. **Anthropic API**: 会話トランスクリプト・添削対象テキスト・発音スコア要約（音声そのものは送らない）
   3. 上記のトークン検証等の接続テスト
 - APIキーは appState（IndexedDB）に端末内保存。**バックアップのエクスポートから除外**し、リストア時も既存キーを上書きしない。
@@ -34,7 +34,7 @@ AI英会話アウトプット練習PWA。**個人利用・低ランニングコ�
 
 - GitHub Pages 配信のため `vite.config.ts` の `base` は `/hanatoma/`（dev時は `/`）。dev サーバは port 5174（shadotoma=5173 と同時起動可）。
 - モバイル(iPhone Safari)ファースト。画面幅 375px 基準、下タブナビゲーション。HashRouter（GH Pagesリロード404回避）。
-- 録音は `MediaRecorder`（iOS Safari=`audio/mp4`(aac) / Chrome・Edge=`audio/webm`(opus)。`MediaRecorder.isTypeSupported`で選択、Blobの実mimeTypeをそのまま保存）。**Azure SDK内蔵マイクは使わない**（iOSオーディオセッション管理がshadotomaで実証済みの自前管理と競合するため）。
+- 録音は `MediaRecorder`（iOS Safari=`audio/mp4`(aac) / Chrome・Edge=`audio/webm`(opus)。`MediaRecorder.isTypeSupported`で選択、Blobの実mimeTypeをそのまま保存）。※M13以降、会話ターンはMediaRecorderを使わず、Azureへ流した16kHz PCM16をWAVにして保存する（MediaRecorderはキーフレーズ予習・オンボーディング・セルフテストのみ）。**Azure SDK内蔵マイクは使わない**（iOSオーディオセッション管理がshadotomaで実証済みの自前管理と競合するため）。
 - iOS対策はshadotomaの実証済みパターンを踏襲: 統一AudioContext、マイクトラックended/mute検知+復旧メッセージ、ジェスチャ文脈でのplay()アンロック、Screen Wake Lock（録音中・添削処理中）。
 
 ## 2. 画面構成（下タブ5つ + フルスクリーンルート）
@@ -96,9 +96,11 @@ interface Turn {
   phase: 'keyphrase' | 'guided' | 'free';
   inputMode?: 'voice' | 'text';  // userのみ
   audioBlob?: Blob;              // userのみ・振り返り再生用（設定 saveTurnAudio=false なら保存しない）
+                                 // M13: 会話ターンは会話完了時に 16kHz WAV（発話区間）を一括添付。キーフレーズは従来の録音Blob
   mimeType?: string;
-  pa?: PaResult;                 // userのみ（音声入力時）
-  thinkingMs?: number;           // AI発話終了→録音開始までの時間（userのみ）
+  pa?: PaResult;                 // userのみ（音声入力時）。M13: 会話ターンは会話終了後に付与（採点できなかったターンは無し）
+  thinkingMs?: number;           // userのみ。M13: 聞き取り開始（AIの発話終了）→実際に話し始めるまで
+                                 // （認識結果の音声オフセット基準。旧定義は「→録音ボタンを押すまで」で、新旧は厳密には比較できない）
 }
 // Azure発音評価結果（unscripted: completenessScoreなし / scripted(キーフレーズ): あり）
 interface PaResult {
@@ -171,7 +173,9 @@ interface UsageDay {
 //       reviewStats(ReviewStats) / reviewDates(string[])  ← サイレント復習(§4b)。appStateは
 //       スキーマレスなためDBバージョンは1のまま。バックアップにも自動的に含まれる
 //       paProsodyFallback({region,date}) ← 韻律非対応リージョンの当日キャッシュ(§6a)
-//       paDebugLog(string[]・「HH:MM:SS [tag] 行」最新30件リングバッファ) ← PA診断ログ(§6a-2)
+//       paDebugLog(string[]・「HH:MM:SS [tag] 行」最新30件リングバッファ) ← PA診断ログ(§6a-2)。M13で会話の速さ([会話])・STT・会話後PAも記録
+//       endOfTurnPatience('short'|'normal'|'long'|'manual') ← 話し終わりの待ち時間(§5・M13)
+//       micMode('perTurn'|'keepOpen') ← 会話中のマイク方式(§5・M13)
 
 // サイレント復習のSRS状態（appState 'reviewStats'。types.tsに型あり）
 interface ReviewCardStat {
@@ -194,7 +198,7 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 
 会話画面はフェーズウィザード。モードは3種:
 - `mode:'lesson'`（フルレッスン・約10分）: 全5フェーズ
-- `mode:'quick'`（クイック会話・約5分）: フェーズ3〜5のみ（**予習なし・添削あり**。題材はレッスンと同じおすすめシナリオ）
+- `mode:'quick'`（クイック会話・約5分）: フェーズ3〜5のみ（**予習なし・添削あり**。題材はレッスンと同じおすすめシナリオ）。M13: 会話画面で「タップして会話をはじめる」を押してからAIが話し始める（iOSの音声再生アンロックとマイク許可のため。biteも同じ。lessonはキーフレーズ予習の「会話をはじめる」が兼ねる）
 - `mode:'bite'`（**ひとくち英会話**・1〜2分）: AIの一言に1回だけ音声で応答→ミニ講評1文（Haiku。Sonnet添削なし）。**忙しい日でもストリークが継続する最小単位**。ホームに常設ボタン
 - ホームの各モードカードには「予習の有無 / 添削の有無 / 所要時間」の差を明記する（ユーザーがモードの違いを認知できる3軸）
 
@@ -221,37 +225,35 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - **XP**: セット完走 `REVIEW_SET_XP=10`（**1日1回のみ**。ストリーク倍率・初回ボーナス・減衰の対象外。calcSessionXpは使わない）
 - **導線**: ホーム（短時間モードの下・期限切れ枚数バッジ付き）と表現帳タブ上部
 
-## 5. 1ターンの音声パイプライン
+## 5. 1ターンの音声パイプライン（M13: ハンズフリー・リアルタイム会話）
+
+**原則: 会話中は発音評価(PA)をしない。** 旧パイプライン（🎤タップ→話す→⏹タップ→PA確定待ち→Haiku→TTS）は、
+unscripted PAの確定が発話長に比例して遅れ（S0でも改善せず・§16a）、返答まで数秒〜15秒かかって会話にならなかった。
+M13で「PAなしの音声認識（§6d）でテキストだけ取り、話し終わりを自動検知して即AIへ」に作り替え、PAは会話終了後（§6a-3）に回した。
 
 ```
-[録音開始] beginVoiceTurn/beginKeyPhrase（M11）:
-  キャップ判定(NGなら録音させない) → Wake Lock → MediaRecorder並走（保存/フォールバック用）
-  → AudioWorklet(pcmTapWorklet): micSource→Float32チャンク
-  → lib/pcm.ts: 線形補間ダウンサンプル(実レート→16k・チャンク境界持ち越し) → PCM16
-  → azurePaStreaming: SDK事前warm済→WS事前接続→continuous認識へ逐次push
-[録音停止] session.finish(): pushStream.close → 確定結果（体感1〜2秒）
-  タイムアウト（適応=認識イベントありなら unscripted 8s / scripted 4s・なければ3s）でも、
-  録音中に集めた部分フレーズがあればサルベージ、確定フレーズ0件でも新鮮なrecognizing部分テキストが
-  あればスコア欠損（azureError入り）のテキストのみで返して会話を継続する（§6a-2 resolveFinishSalvage。
-  旧45s待ち→batch二重払いを廃止）。nudge(2s)のstop成功時はタイムアウトを待たず即settle。
-  韻律初回失敗/接続断/結果ゼロ/サルベージ不可時のみ、録音Blobから従来のbatch経路
-  （decodeToMono16k→WAV→assessSpeech）へ自動フォールバック。ただし確定待ちタイムアウト
-  かつ音声4秒超はbatchも間に合わない見込みが濃厚なため見送り即エラー表示（shouldSkipBatch）。
-  PCMチャンクが1件も届いていない場合（worklet不動作）はセッション確立もタイムアウトも
-  待たず即断でbatchへ（voiceCapture.finish先頭で判定）。
-  全体デッドライン: submitVoice=15s / submitKeyPhrase=12s。signalはcapture.finish（voiceCapture層で
-  セッション確立待ち・確定待ちとrace）とbatchの両方へ貫通し、超過時はin-flight認識をabortして会話を止めない
-  ↓ 認識テキストを即時表示
-[Claude Haiku] streaming で返答生成（§7a）。テキストは逐次表示
-  ↓ 文境界ごとに
-[Azure TTS] SSML合成 → ArrayBuffer → 統一AudioContextでキュー再生（§6c）
+[聞き取り] マイク(worklet) → 16kHz PCM16 → 送信ゲート → Azure STT（PAなし・無音500msで1フレーズ確定）
+   recognizing＝字幕に薄く表示 / recognized＝確定文をためる
+   最後が確定文 かつ 待ち時間Wのあいだ新しい発話なし → ターン確定（「送信」タップで即確定も可）
+   W（live/endOfTurn.ts）: 言い終わった形 500ms / 普通 800〜1000ms / 言いかけ(and, because, to, the, um…)で終わる 2500ms
+       × 設定「話し終わりの待ち時間」短め0.6・標準1・長め1.6、手動=送信タップのみ
+[確定] STTを閉じる（F0の同時認識1本を空ける）→ DB書き込みを待たずに即 Haiku streaming（設定は会話開始時に先読み）
+   → 1文目は3文字以上で即TTS（会話中1本の事前接続シンセサイザ §6c）→ 2つ目以降は再生待ちが尽きたとき/終了時にまとめて1リクエスト
+[AI発話中] マイク音声はSTTへ送らない（半二重）。「割り込む」タップ＝TTS停止＋Haiku中断→即聞き取りへ（声での割り込みは非対応）
+   全チャンクの再生完了（ストリーム終了かつ再生キュー空）→ 150ms待って自動で聞き取り再開
+[一時停止] 20秒話さなければ自動停止（Azure無料枠の節約）→「再開」タップ。ヒント音声の再生中・テキスト入力中・バックグラウンド中は自動で止めて自動で戻る
+[会話終了] 聞き取りを閉じる → 会話後PA（§6a-3）‖ Sonnet添削 → PA結果をターンへマージ → 指標・★・XP・レベル
 ```
 
-- 目標レイテンシ（ユーザー発話終了→AI音声開始）: 合計 ≤3.2秒。区間別目安: **PA確定（stream close→結果）≤1.5s** / Haiku初文≤1.2s / TTS初回≤0.5s。batchフォールバック時はWAV変換≤0.3s+PA一括ぶんが加算。フッターの計測表示は `PA xxxms(S|B)` でstream/batchを区別、内訳（接続/初回認識/close→確定）はconsole.info
-- テキスト入力切替: キーボードアイコンで入力欄表示。PAはスキップ（`pa`なし・`inputMode:'text'`）
-- 録音中: 経過秒・レベルメーター（AnalyserNode）・Wake Lock取得。マイクトラックended/mute検知時は「マイクがOSに停止されました。もう一度録音開始を押してください」
-- 評価中: 小スピナー+経過秒表示（`AssessingIndicator.tsx`。「発音を評価中… n秒」。経過秒はDate.now()差分から導出しStrictMode二重実行に耐える）
-- AI音声再生とマイクの iOS オーディオセッション往復が壊れる場合は、shadotoma M7 の対策（統一AudioContext・手動▶ボタン）を展開する（M2/M3実機確認項目）
+- 構成（`src/features/conversation/`）: `live/endOfTurn.ts`（話し終わり判定・純関数）/ `live/liveMachine.ts`（ターン交代の状態機械・純関数reducer）/ `live/liveTalkController.ts`（副作用の実行: マイク・STT・タイマー・会話フック。STTは常に最大1本）/ `live/useLiveTalk.ts`（React）/ `LiveTalkBar.tsx`（UI）/ `aiTurn.ts`（Haiku→区切り→TTS→再生の1ターン）/ `conversationWriter.ts`（DB書き込みの直列化・合流・終了後のseal）/ `useConversation.ts`（会話データ・AIターン・キーフレーズ予習）
+- 目標レイテンシ（話し終わり→AIの最初の音）: **約2秒**。内訳目安: 区切り無音0.5s+確定の遅れ〜0.2s+待ち時間W 0.5s / Haiku初文0.4〜0.8s / TTS初回（事前接続済み）0.2〜0.4s。フッターに `発話終了→AI音声 1.9s | 確定0.9・AI初文0.6・TTS0.3` を表示し、同じ内容を診断ログ（[会話]）に記録する（発話終了＝最後の確定文の音声オフセット＋長さ、AI音声＝実際の再生開始）
+- 状態（liveMachine）: off → aiThinking → aiSpeaking →（drained+150ms）→ listening → hearing（部分認識あり）→ endpointing（確定文あり）→ commit → aiThinking…。一時停止は2種: holds（hint/text/background。自動で戻る）と paused（user/idle/error/mic/cap。「再開」タップで戻る）。確定文は一時停止をはさんでも同じターンに引き継ぐ
+- マイク方式（設定 `micMode`）: **既定 `perTurn`**＝聞き取りの間だけ getUserMedia し、AIが話す間は閉じる（iPhoneで実績のある動き。マイク使用中はiOSが通話用の経路に切り替えてAI音声が小さくなることがあるため）。`keepOpen`（実験）＝会話中ずっと開いたまま・`navigator.audioSession.type='play-and-record'`。トラックの mute は一時停止（mic）、ended はマイク停止として再開タップへ
+- 開始タップ: 開始時にAudioContextをresume（iOSの再生アンロック）し、マイク許可を先に取っておく（perTurnは一度開いてすぐ閉じる）
+- テキスト入力: キーボードアイコンで切替（聞き取りは自動で止まる）。PAなし（`inputMode:'text'`）
+- ひとくち（bite）: 1往復したらAIの返答が終わった時点で聞き取りを止め、完了ボタンを出す
+- 使用量: STTへ送った音声秒と会話後PAの音声秒を `paSeconds` に加算し、日次キャップ `paMinutes`（表示名「音声認識・発音評価（分）」）で判定。超過時は聞き取らずテキスト入力へ案内
+- キーフレーズ予習（lesson）は従来どおりタップ録音＋録音中ストリーミングscripted PA（§6a-2・§6b）でその場で採点する（短文で確定が速いため）
 
 ## 6. Azure Speech 連携
 
@@ -270,6 +272,8 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - **送信スロットルの無効化**: SDKは既定で先頭5秒を超えた分を実時間の2倍速にペーシングする（ServiceRecognizerBase.sendAudio）。録音済み音声の一括投入に実時間ペースは不要なため、stream/batch両経路で `speechConfig.setProperty('SPEECH-TransmitLengthBeforThrottleMs','300000')` を設定する
 
 ### 6a-2. ストリーミング発音評価（M11）`azurePaStreaming.ts`
+
+> M13以降、会話ターンでは使わない（会話中はPAなしのSTT §6d、PAは会話後 §6a-3）。現在の利用者はキーフレーズ予習（scripted）とセルフテストのみ。以下は当時の設計と実測の記録。
 - **録音開始時に** SDK import（useConversationマウント時にprewarmSpeechSdkで事前ロード済み）→ WS事前接続（Connection.openConnection）→ continuous認識開始まで済ませ、マイクの16k PCM16（`lib/pcm.ts` の決定的リサンプラ+`recorder/pcmTapWorklet.ts` のAudioWorkletで生成）を逐次push。停止時は close→確定待ちのみ
 - **マイクタップ二重張りの防止（M12補修・重要）**: `useRecorder.start()` の多重起動ガードは **state（isRecording）ではなく `streamRef`（ref）** で行う。stateで判定すると、録音ボタン連打時に「2回目のタップの開始処理」が再レンダリング前のクロージャ（isRecording=false）を通ってしまい、**2本目のマイクストリームとPCMタップが張られる**。1本目はrefを上書きされて解放されず**ページ生存中ずっと残留**し、以降すべてのターンで同じ声が二重に流れる（実測: バイト数から算出した音声秒数が実測の約2倍。Azureへ送る音声も43ms単位で二重化して認識が破綻し、`canSalvagePartial` の未カバー末尾も常に閾値超になってサルベージが全滅した）。MicButton / KeyPhrasePanel 側にもタップ連打ガード（ref）を置き、`beginVoiceTurn`/`beginKeyPhrase` の二重呼び出し（評価セッションの二重張り）も防ぐ。診断ログの `音声 X.Xs(実時間 Y.Ys)` はこの種の異常の検出用（実時間をわずかに下回るのが正常）
 - **失敗契約**: このモジュールは内部層としてthrowする。呼び出し側（`conversation/voiceCapture.ts`→useConversation）が録音Blobからbatch(assessSpeech)へ自動フォールバックし、「throwせずazureErrorで返す」PaResult契約はbatchが最終保証する
@@ -285,6 +289,21 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - iOS teardownバグ対策（swallowTeardownError）・resolveRecognitionOutcome・aggregatePhraseAssessments は azurePaUnscripted.ts と共有
 - セッション状態遷移は純関数 nextSessionState（Vitest）。usageLog加算はstream/batchどちらか一方のみ
 
+### 6a-3. 会話後の発音評価（M13）`conversation/deferredPa.ts`
+- 会話中にSTTへ流した16kHz PCM16をターンごとに保持し、確定時に発話区間（認識結果の offset/duration）±300msへ切り詰めて `TurnClip {at, text, pcm}` にする（`live/liveTalkController.ts`）
+- 会話終了時（`sessionEnd.ts`）、聞き取りを閉じてから（F0の同時認識1本）、`selectClipsForPa` で評価するターンを選ぶ: 語数の多い順・1〜20秒のターン・合計は日次キャップの残りと1セッション60秒の小さい方まで
+- `runDeferredPa` が1件ずつ直列に `assessSpeech` を実行。既定は **scripted（参照文＝会話中の認識テキスト・韻律なし `prosody:false`）**: 採点語が画面のテキストと一致し、短文では確定が速い実績がある。`DEFERRED_PA_MODE` で unscripted に切替可。1件ごとの所要時間は診断ログ `[会話後PA]` に記録
+- **Sonnet添削と並行**に走らせ、Sonnet完了の2秒後（最低でも開始10秒・ひとくちは8秒）で打ち切り、上限30秒。打ち切られた・失敗したターンは `pa` なし（`metrics.ts` はpaなしを平均から除外・全ターンなしなら発音の重みを他へ配分）
+- 結果は `mergeDeferredPa`（`Turn.at` で突き合わせ。Turn.at は会話内で単調増加・一意）でターンへ書き戻して保存し、以降の音素コメント・メトリクス・★・クエスト・レベルは**マージ後のターン**で計算する。終了オーバーレイに「発音 n/m」を表示
+- 添削は `generateReport.ts` を `requestCorrection`（キャップ判定・Sonnet・usage加算）と `saveCorrectionReport`（音素コメント合成・保存・表現帳）に分割した。Sonnetへの発音注記は会話後PAを待たないため付かない（`formatTurnLine` はpa欠損を許容）
+
+### 6d. 会話中の音声認識（PAなし・M13）`speech/azureStt.ts`
+- 素の `SpeechRecognizer`（PronunciationAssessmentConfigなし・en-US）に16kHz PCM16をpush。`recognizing` を部分認識、`recognized` を確定（NoMatchは空文字）として逐次コールバック
+- 区切り: `Speech_SegmentationSilenceTimeoutMs=500`（既定）。SDKでは無音指定を入れると `Speech_SegmentationStrategy=Semantic` が無効化される（排他）ため、どちらか一方だけを設定する。Semanticはセルフテスト「7. 会話の音声認識」で比較用に選べる（アプリ本体は無音500ms）
+- `azurePaStreaming.ts` と同じ流儀: SDK事前ロード（prewarmSpeechSdk）・WS事前接続（openConnection）・開始タイムアウト10秒・送信スロットル無効化・フレーズヒント（buildPhraseHints）・closeConnection先の後片付け。接続完了前の音声はコントローラがバッファし、完了後に到着順で流す（話し始めの取りこぼし防止）
+- 送信タップ時は `finish(600ms)`: 送信を締めて残りの確定を最大600ms待つ。確定が来なければ部分認識のテキストで送る
+- 開始失敗・開始後のエラーは一時停止（error）＋案内。「再開」で新しいセッションを張る
+
 ### 6b. scripted 発音評価（キーフレーズ予習用）
 - referenceText=キーフレーズ文。enableMiscue=true。他は6aと同じ。completenessScoreあり
 - phraseHints にはキーフレーズ文そのものを1件渡す（参照文と認識のズレを減らす）
@@ -294,6 +313,8 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - SSML: 音声名=appState `ttsVoice`（初期値 en-US-JennyNeural）、`<prosody rate>` にレベル別値(§8d)
 - 利用可能音声はリージョンの voices/list REST で取得し設定画面に一覧表示+試聴（ハードコードしない。en-US Neuralのみフィルタ）
 - キーフレーズ・模範解答の音声はセッション内メモリキャッシュ（同一文の再合成を避ける）
+- **会話中のAI発話は `createTtsSession`（M13）**: 1つの `SpeechSynthesizer` を `Connection.fromSynthesizer().openConnection()` で会話画面を開いた時点から事前接続し、使い回す（文ごとに接続を作るとハンドシェイク数百msが毎回初音に乗るため）。同じシンセサイザへの要求はSDKが到着順に処理する。失敗時は作り直して1回だけ再試行。割り込み時に合成待ちが残っていれば接続を作り直す（古い文の合成が次のターンの前に並ばないように）
+- F0のTTSは約20回/分の上限があるため、会話中は1ターン2〜3リクエストに抑える（§5の区切り方）。単発の `synthesize()` はヒント・キーフレーズ・試聴用
 
 ## 7. Anthropic API 連携
 
@@ -305,6 +326,7 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 - 共通ルールの要点: あなたはシナリオのaiRoleを演じる / **発話のみ（ト書き・仕草・表情の描写・絵文字・アスタリスク禁止）** / 返答は1〜3文・レベル語彙制約(§8d) / ユーザーの英語の誤りは**会話中は直さない**（理解できたら会話を続ける。全く理解できない時だけ聞き返す）/ ゴール達成に向けて自然に誘導 / ガイドフェーズでは現在のstepのaiIntentに従う
 - **ト書き除去の防御層**: プロンプト禁止にもかかわらず混入した `*nods with a smile*` 等の演技描写は、純関数 `stripStageDirections`（`sanitizeAiText.ts`・Vitest）で表示(aiDraft)・TTS読み上げ・Turn保存の全経路から除去する（履歴に残すと以降のターンでHaikuが真似るため保存前に落とす）。複数語の`*...*`と既知の仕草1語（smiles等）は除去、それ以外の1語は強調とみなし語だけ残す。マーカー無しの裸のト書きはプロンプト側で抑止
 - 履歴が20ターンを超えたら古いターンを1行要約に畳む（コスト対策）
+- M13: 共通ルールに「返答の冒頭は2〜5語の自然な相づち（Oh, nice! / I see. 等・毎回変える）」を追加（1文目が短いほど初音が早い）。`streamMessages` は `signal` で中断でき、中断時は例外にせず途中までのテキストと推定usage（出力≒文字数/4）を返す（usage加算は必ず行う）。割り込まれたAI発話も途中までのテキストで履歴に残す
 
 ### 7b. 精密添削（Sonnet, tool use強制）`sonnetCorrection.ts`
 - model: `claude-sonnet-5`。tool use（input_schema=CorrectionReportのJSONスキーマ相当、tool_choice指定）で構造化出力を強制
@@ -390,6 +412,7 @@ type ReviewStats = Record<string, ReviewCardStat>; // key = ReviewCard.key
 ## 12. 使用量・コストガードレール（`src/lib/usage/`・純関数・Vitest必須）
 
 - `caps.ts`: 日次キャップ判定。既定 `{sessions:3, sonnetCalls:8, paMinutes:30}`（appStateで変更可）。超過時はAPIを呼ばず「今日の練習上限に達しました（設定で変更できます）」
+- M13: `paMinutes` は「音声認識・発音評価（分）」＝会話中のSTTへ送った音声秒＋会話後PAの音声秒の合計で判定する（どちらもAzure Speechの無料枠 月5時間を消費する。shadotomaと共用）
 - `pricing.ts`: 単価定数（USD/Mtok: haiku in 1.0/out 5.0、sonnet in 3.0/out 15.0、cache read=inの1/10。Azureは無料枠前提で0円表示+超過注記）。為替は定数 `USD_JPY = 155`（設定で変更可）
 - usageLog 加算はAPIレスポンスの usage をそのまま記録。設定画面ダッシュボード: 今月合計（呼び出し数・トークン・概算円）+ 日別ミニ表
 - 会話履歴の切り詰め（§7a）と Haiku max_tokens 200 固定もコスト対策の一部
@@ -416,10 +439,12 @@ hanatoma/
       pcm.ts（M11: 決定的リサンプラ+PCM16変換の純関数）
       usage/{caps.ts, pricing.ts}
     features/
-      speech/（azureSpeechConfig.ts, azurePaUnscripted.ts, azurePaStreaming.ts(M11), azureTts.ts, voiceList.ts）
+      speech/（azureSpeechConfig.ts, azurePaUnscripted.ts, azurePaStreaming.ts(M11), azureStt.ts(M13), azureTts.ts, voiceList.ts）
       llm/（anthropicClient.ts, haikuPartner.ts, sonnetCorrection.ts, prompts/）
-      recorder/（useRecorder.ts, pcmTapWorklet.ts(M11)）
-      conversation/（useConversation.ts=状態機械, voiceCapture.ts(M11), MicButton.tsx, TurnList.tsx, HintPanel.tsx ほか）
+      recorder/（useRecorder.ts, pcmTapWorklet.ts(M11), micSession.ts(M13)）
+      conversation/（useConversation.ts=会話データ・AIターン, live/(M13: endOfTurn・liveMachine・liveTalkController・useLiveTalk),
+                     aiTurn.ts, conversationWriter.ts, deferredPa.ts, LiveTalkBar.tsx, voiceCapture.ts(M11・キーフレーズ用),
+                     MicButton.tsx(オンボーディング), TurnList.tsx, HintPanel.tsx ほか）
       report/（CorrectionReportView.tsx, ExpressionNotebook.tsx, phonemeComments.ts, exportToShadotoma.ts）
       sisterApp/（shadotomaBridge.ts, shadotomaMaterialContract.ts, weaknessFromSubmissions.ts）
       review/（reviewStore.ts。§4b。homeData.tsをimportしない葉モジュール）
@@ -443,6 +468,7 @@ hanatoma/
 - **M9** 仕上げ: 動的生成、使用量ダッシュボード+キャップUI、PWA磨き、最終QA
 - **M10** サイレント復習: SM-2間隔反復めくりカード（§4b）、ストリーク合流、ホーム/表現帳導線
 - **M11** ストリーミングPA: 録音中逐次評価（worklet→16k PCM16→push・WS事前接続・SDK事前warm）、batch自動フォールバック、送信スロットル無効化、selftest検証パネル
+- **M13** ハンズフリー・リアルタイム会話（2026-09-27）: 会話中はPAなしSTT（§6d）＋話し終わり自動検知（§5）、AI側の高速化（DB待ち撤廃・TTS事前接続・1文目即読み上げ・割り込み）、会話後PA（§6a-3）、設定「話し終わりの待ち時間」「会話中のマイク」、selftest「7. 会話の音声認識」
 
 ## 15. 検収基準（共通）
 
@@ -454,6 +480,8 @@ hanatoma/
 ## 16. 未決の検討事項（バックログ）
 
 ### 16a. 自由会話PAの遅延（S0でも解消せず。2026-07-25時点・保留中）
+
+> **M13（2026-09-27）で会話の遅さとしては解消**: 会話中はPAをせず（§5・§6d）、PAは会話後にまとめて行う（§6a-3）ようにした。PA自体の遅延の原因（端末・回線側かサービス側か）は未判明のまま。会話後PAで採点できるターン数が少なすぎる場合は、下記「次の実験」と Granularity=Word 案を再検討する。
 
 **症状**: 発話が長いほど遅れが累積し、長い発話ほど確定しない。iPhone実機・japaneast S0での実測:
 
