@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getAzureSpeechKey } from '../features/speech/azureSpeechConfig';
+import { LiveSttPanel } from '../features/speech/selftest/LiveSttPanel';
 import { PaDebugLogPanel } from '../features/speech/selftest/PaDebugLogPanel';
 import { PaEvaluationPanel } from '../features/speech/selftest/PaEvaluationPanel';
 import { RecordingPanel } from '../features/speech/selftest/RecordingPanel';
@@ -60,6 +61,7 @@ export function SelfTestPage() {
       <TtsTestPanel />
       <StreamingPaPanel />
       <PaDebugLogPanel />
+      <LiveSttPanel />
     </div>
   );
 }

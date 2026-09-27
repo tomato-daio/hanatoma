@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { parseSseChunk } from './anthropicClient';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { estimateOutputTokens, parseSseChunk, streamMessages } from './anthropicClient';
 
 describe('parseSseChunk', () => {
   it('content_block_deltaのtext_deltaをパースできる', () => {
@@ -76,5 +76,67 @@ describe('parseSseChunk', () => {
 
     expect(parsed?.type).toBe('content_block_delta');
     expect(parsed?.data.index).toBe(0);
+  });
+});
+
+describe('streamMessages（中断）', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('中断されたら例外にせず、途中までのテキストと推定usageを aborted で返す', async () => {
+    const encoder = new TextEncoder();
+    const controller = new AbortController();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = new ReadableStream<Uint8Array>({
+          start(c) {
+            c.enqueue(
+              encoder.encode(
+                'data: {"type":"message_start","message":{"usage":{"input_tokens":300,"output_tokens":1}}}\n\n' +
+                  'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Sure, I can help with that."}}\n\n',
+              ),
+            );
+            init.signal?.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')));
+          },
+        });
+        return new Response(body, { status: 200 });
+      }),
+    );
+    const deltas: string[] = [];
+    const promise = streamMessages({
+      apiKey: 'k',
+      model: 'claude-haiku-4-5',
+      messages: [{ role: 'user', content: 'hi' }],
+      maxTokens: 10,
+      signal: controller.signal,
+      onText: (d) => {
+        deltas.push(d);
+        controller.abort();
+      },
+    });
+    const r = await promise;
+    expect(r.aborted).toBe(true);
+    expect(r.text).toBe('Sure, I can help with that.');
+    expect(r.usage.inputTokens).toBe(300);
+    expect(r.usage.outputTokens).toBe(estimateOutputTokens('Sure, I can help with that.'));
+    expect(deltas).toHaveLength(1);
+  });
+
+  it('中断以外のエラーはそのまま投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ error: { type: 'authentication_error', message: 'bad key' } }), { status: 401 })),
+    );
+    await expect(
+      streamMessages({
+        apiKey: 'k',
+        model: 'claude-haiku-4-5',
+        messages: [{ role: 'user', content: 'hi' }],
+        maxTokens: 10,
+        onText: () => {},
+      }),
+    ).rejects.toThrow('bad key');
   });
 });

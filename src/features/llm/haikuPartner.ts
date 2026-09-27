@@ -21,11 +21,14 @@ export interface NextAiTurnOptions {
   phase: ConversationPhase;
   step?: ScenarioStep;
   onText: (delta: string) => void;
+  /** 割り込み・会話終了での中断（M13）。中断時は途中までのテキストで aborted:true が返る。 */
+  signal?: AbortSignal;
 }
 
 export interface NextAiTurnResult {
   text: string;
   usage: Usage;
+  aborted?: boolean;
 }
 
 /**
@@ -64,7 +67,7 @@ export function turnsToMessages(turns: Turn[]): Msg[] {
  * 呼び出し前の日次キャップ判定・usageLogへの加算は呼び出し側（useConversation.ts等）の責務。
  */
 export async function nextAiTurn(opts: NextAiTurnOptions): Promise<NextAiTurnResult> {
-  const { apiKey, scenario, level, history, phase, step, onText } = opts;
+  const { apiKey, scenario, level, history, phase, step, onText, signal } = opts;
 
   const truncated = truncateHistory(history, scenario.goal);
   const messages = turnsToMessages(truncated);
@@ -77,5 +80,6 @@ export async function nextAiTurn(opts: NextAiTurnOptions): Promise<NextAiTurnRes
     messages,
     maxTokens: MAX_TOKENS,
     onText,
+    signal,
   });
 }

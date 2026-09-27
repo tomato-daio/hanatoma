@@ -13,6 +13,8 @@ interface Props {
   turns: Turn[];
   aiDraft: string;
   busy: ConversationBusy;
+  /** ハンズフリー会話で聞き取り中のユーザー発話（確定文＋話している途中の部分認識。M13）。 */
+  liveCaption?: { finals: string; partial: string } | null;
 }
 
 function paChipColor(score: number): string {
@@ -21,12 +23,12 @@ function paChipColor(score: number): string {
   return 'bg-red-100 text-red-700';
 }
 
-export function TurnList({ turns, aiDraft, busy }: Props) {
+export function TurnList({ turns, aiDraft, busy, liveCaption }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [turns.length, aiDraft, busy]);
+  }, [turns.length, aiDraft, busy, liveCaption?.finals, liveCaption?.partial]);
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3">
@@ -62,6 +64,23 @@ export function TurnList({ turns, aiDraft, busy }: Props) {
         <div className="flex justify-start">
           <div className="max-w-[80%] rounded-2xl rounded-bl-sm border border-neutral-200 bg-white px-3 py-2 text-sm leading-relaxed text-neutral-800">
             <p>{aiDraft}</p>
+          </div>
+        </div>
+      )}
+
+      {liveCaption && (liveCaption.finals || liveCaption.partial) && (
+        // 聞き取り中の字幕（M13）: 確定した文は白、話している途中の部分は薄く表示する。
+        <div className="flex justify-end">
+          <div className="max-w-[80%] rounded-2xl rounded-br-sm border border-dashed border-hana-300 bg-hana-100 px-3 py-2 text-sm leading-relaxed text-hana-900">
+            <p>
+              {liveCaption.finals}
+              {liveCaption.partial && (
+                <span className="text-hana-900/50">
+                  {liveCaption.finals ? ' ' : ''}
+                  {liveCaption.partial}
+                </span>
+              )}
+            </p>
           </div>
         </div>
       )}

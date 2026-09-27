@@ -1,9 +1,9 @@
 /**
  * 添削レポート生成のオーケストレーション（DESIGN.md §7b・M4）。
  *
- * 手順: 日次キャップ判定(canCallSonnet) → Anthropicキー取得 → callSonnetCorrection →
- * phonemeComments合成 → putCorrectionReportで保存 → learnedExpressionsをexpressionsストアへ
- * 登録(重複enは登録しない) → addUsageでusageLog加算。
+ * 手順: requestCorrection（日次キャップ判定(canCallSonnet) → Anthropicキー取得 → callSonnetCorrection →
+ * addUsageでusageLog加算）→ saveCorrectionReport（phonemeComments合成 → putCorrectionReportで保存 →
+ * learnedExpressionsをexpressionsストアへ登録(重複enは登録しない)）。
  *
  * エラー時は例外を投げず {error: string} を返す（呼び出し側でリトライ導線を出すため）。
  */
@@ -23,25 +23,26 @@ import {
 import { getAnthropicApiKey } from '../settings/anthropicKeyConfig';
 import { buildPronunciationComments } from './phonemeComments';
 import { PHONEME_ADVICE } from './phonemeAdvice';
+import type { SonnetCorrectionOutput } from './correctionSchema';
 import { callSonnetCorrection } from './sonnetCorrection';
 
 const CAP_MESSAGE_JA = '今日の添削回数の上限に達しました（設定で変更できます）。';
 const NO_KEY_MESSAGE_JA = 'Anthropic APIキーが未設定です。設定画面で登録してください。';
 
 export type GenerateCorrectionReportResult = CorrectionReport | { error: string };
+export type CorrectionRequestResult = { output: SonnetCorrectionOutput } | { error: string };
 
 /**
- * generateCorrectionReport: 完了した会話からSonnet添削レポートを生成し永続化する。
- * conversation.turnsとscenarioから入力を組み立て、成功時はDB保存済みのCorrectionReportを返す。
- * @param sisterWeakPhonemes 自アプリ+shadotoma(DESIGN.md §11)から集約した注意音素リスト
- *   （呼び出し側が用意する。未連携時は空配列でよい）。
+ * requestCorrection: 日次キャップ判定→キー取得→Sonnet添削呼び出し→usageLog加算まで（保存はしない）。
+ * M13: 会話後の発音評価と並行して走らせ、発音スコアがそろってから saveCorrectionReport で
+ * 音素コメントを合成して保存するために分けた（Sonnetへの入力に発音スコアは不要）。
  */
-export async function generateCorrectionReport(
+export async function requestCorrection(
   conversation: Conversation,
   scenario: Scenario,
   level: AppLevel,
   sisterWeakPhonemes: string[],
-): Promise<GenerateCorrectionReportResult> {
+): Promise<CorrectionRequestResult> {
   const today = learningDate(new Date());
   const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
   const usage = await getUsageDay(today);
@@ -70,7 +71,17 @@ export async function generateCorrectionReport(
     outputTokens: tokenUsage.outputTokens,
     cacheReadTokens: tokenUsage.cacheReadTokens,
   });
+  return { output };
+}
 
+/**
+ * saveCorrectionReport: Sonnetの添削結果に音素コメント（会話後の発音評価をマージ済みのターンから
+ * 純関数で合成）を加えて保存し、learnedExpressionsを表現帳へ登録する。
+ */
+export async function saveCorrectionReport(
+  output: SonnetCorrectionOutput,
+  conversation: Conversation,
+): Promise<GenerateCorrectionReportResult> {
   const pronunciationComments = buildPronunciationComments(conversation.turns, PHONEME_ADVICE);
 
   const report: CorrectionReport = {
@@ -117,4 +128,20 @@ export async function generateCorrectionReport(
   }
 
   return report;
+}
+
+/**
+ * generateCorrectionReport: 完了した会話からSonnet添削レポートを生成し永続化する（requestCorrection→saveCorrectionReport）。
+ * @param sisterWeakPhonemes 自アプリ+shadotoma(DESIGN.md §11)から集約した注意音素リスト
+ *   （呼び出し側が用意する。未連携時は空配列でよい）。
+ */
+export async function generateCorrectionReport(
+  conversation: Conversation,
+  scenario: Scenario,
+  level: AppLevel,
+  sisterWeakPhonemes: string[],
+): Promise<GenerateCorrectionReportResult> {
+  const requested = await requestCorrection(conversation, scenario, level, sisterWeakPhonemes);
+  if ('error' in requested) return requested;
+  return saveCorrectionReport(requested.output, conversation);
 }
