@@ -93,7 +93,7 @@ export interface Utterance {
  */
 const SYNTHETIC_OPENER: Turn = {
   role: 'user',
-  text: '(The scene starts now. Greet me in character and begin the conversation according to the scenario.)',
+  text: '(The scene starts now. Greet me in character with a short opening line, then stop and wait for my reply.)',
   at: 0,
   phase: 'guided',
 };
@@ -139,8 +139,10 @@ export interface UseConversationResult {
   /** ガイドフェーズの現在ステップ（フリー会話ではnull）。 */
   currentStep: ScenarioStep | null;
   busy: ConversationBusy;
-  /** ストリーミング中のAI発話（確定後はturnsに入る）。 */
+  /** 画面に出すAI発話の字幕（読み上げに合わせて伸びる。再生が終わるとturnsの吹き出しに置き換わる）。 */
   aiDraft: string;
+  /** 履歴には入ったがまだ読み上げ中のAIターンのat（画面ではaiDraftで出すので、吹き出しは隠す）。 */
+  speakingTurnAt: number | null;
   error: string | null;
   /** エラーではない案内。 */
   info: string | null;
@@ -193,6 +195,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
   const [stepIndex, setStepIndex] = useState(0);
   const [busy, setBusy] = useState<ConversationBusy>('idle');
   const [aiDraft, setAiDraft] = useState('');
+  const [speakingTurnAt, setSpeakingTurnAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [hintLevel, setHintLevel] = useState<0 | 1 | 2 | 3>(0);
@@ -295,7 +298,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
         phase: curPhase,
         step,
         tts,
-        onDraft: (text) => {
+        onCaption: (text) => {
           if (gen === genRef.current) setAiDraft(text);
         },
         onFirstAudio: () => {
@@ -306,8 +309,12 @@ export function useConversation(conversationId: string | undefined): UseConversa
         onStreamEnd: ({ text }) => {
           if (gen !== genRef.current) return;
           // 保存もト書き除去後のテキスト（履歴に残すと以降のターンでHaikuが真似るため）。
-          if (text) appendTurn({ role: 'ai', text, at: nextAt(), phase: curPhase });
-          setAiDraft('');
+          if (!text) return;
+          const at = nextAt();
+          appendTurn({ role: 'ai', text, at, phase: curPhase });
+          // 読み上げ中は字幕（aiDraft）で出し続け、全文の吹き出しは再生が終わってから出す。
+          if (tts) setSpeakingTurnAt(at);
+          else setAiDraft('');
         },
         onUsage: (usage, chars) => {
           recordUsage({
@@ -350,6 +357,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
           appendTurn({ role: 'ai', text: outcome.text, at: nextAt(), phase: curPhase });
         }
         setAiDraft('');
+        setSpeakingTurnAt(null);
         if (outcome.kind === 'failed') setError(outcome.error ?? 'AIの応答生成に失敗しました。');
         setBusy('idle');
         emit(outcome.kind);
@@ -706,6 +714,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
     currentStep: phase === 'guided' && scenario ? (scenario.steps[stepIndex] ?? null) : null,
     busy,
     aiDraft,
+    speakingTurnAt,
     error,
     info,
     setInfo,

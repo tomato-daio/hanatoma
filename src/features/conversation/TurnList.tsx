@@ -1,7 +1,7 @@
 /**
  * 会話ログの吹き出しリスト（DESIGN.md §2 会話画面）。
  * AI=左・白 / ユーザー=右・オレンジ。音声入力ターンには発音スコアのチップを出す。
- * ストリーミング中のAI発話（aiDraft）は末尾に仮の吹き出しとして表示する。
+ * AI発話は読み上げ中は字幕（aiDraft）として末尾に出し、再生が終わってから確定の吹き出しにする。
  */
 
 import { useEffect, useRef } from 'react';
@@ -12,6 +12,8 @@ import type { ConversationBusy } from './useConversation';
 interface Props {
   turns: Turn[];
   aiDraft: string;
+  /** まだ読み上げ中のAIターン（字幕で出しているので吹き出しは隠す）。 */
+  speakingTurnAt?: number | null;
   busy: ConversationBusy;
   /** ハンズフリー会話で聞き取り中のユーザー発話（確定文＋話している途中の部分認識。M13）。 */
   liveCaption?: { finals: string; partial: string } | null;
@@ -23,7 +25,7 @@ function paChipColor(score: number): string {
   return 'bg-red-100 text-red-700';
 }
 
-export function TurnList({ turns, aiDraft, busy, liveCaption }: Props) {
+export function TurnList({ turns, aiDraft, speakingTurnAt, busy, liveCaption }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export function TurnList({ turns, aiDraft, busy, liveCaption }: Props) {
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3">
-      {turns.map((turn, i) => (
+      {turns.map((turn, i) => turn.at === speakingTurnAt && turn.role === 'ai' ? null : (
         <div key={`${turn.at}-${i}`} className={`flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}>
           <div
             className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed ${

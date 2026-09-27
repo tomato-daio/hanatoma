@@ -103,6 +103,39 @@ describe('startAiTurn', () => {
     expect(outcome).toBe('drained');
   });
 
+  it('字幕は読み上げに合わせて出し、まだ鳴っていない文は先に出さない', async () => {
+    const h = fakeHaiku();
+    const a = fakePlayer();
+    const captions: string[] = [];
+    startAiTurn({
+      ...base,
+      tts: { synth: a.synth, reset: a.reset },
+      onCaption: (t) => captions.push(t),
+      deps: { nextAiTurn: h.nextAiTurn, play: a.play },
+    });
+    h.send('Oh, nice! ');
+    h.send('What would you like to drink?');
+    h.end();
+    await flush();
+    await flush();
+    // テキストは全部届いているが、字幕は鳴っている1文目まで
+    expect(captions.at(-1)).toBe('Oh, nice!');
+    a.played[0].finish();
+    await flush();
+    await flush();
+    expect(captions.at(-1)).toBe('Oh, nice! What would you like to drink?');
+    expect(captions.some((c) => c.includes('drink') && a.played.length < 2)).toBe(false);
+  });
+
+  it('TTSなしなら字幕は生成途中のテキストをそのまま出す', async () => {
+    const h = fakeHaiku();
+    const captions: string[] = [];
+    startAiTurn({ ...base, tts: null, onCaption: (t) => captions.push(t), deps: { nextAiTurn: h.nextAiTurn } });
+    h.send('Hi there. ');
+    h.send('How are you?');
+    expect(captions).toEqual(['Hi there.', 'Hi there. How are you?']);
+  });
+
   it('割り込みで即 interrupted になり、合成待ちがあれば接続を作り直す', async () => {
     const h = fakeHaiku();
     const a = fakePlayer();

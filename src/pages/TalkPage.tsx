@@ -141,6 +141,7 @@ export function TalkPage() {
           <TurnList
             turns={conv.turns.filter((t) => t.phase !== 'keyphrase')}
             aiDraft={conv.aiDraft}
+            speakingTurnAt={conv.speakingTurnAt}
             busy={conv.busy}
             liveCaption={{ finals: live.view.finals, partial: live.view.partial }}
           />

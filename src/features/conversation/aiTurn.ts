@@ -10,6 +10,9 @@
  *   - 'interrupted' : interrupt() で止めた（割り込み・会話終了）。止めた時点で即座に解決する
  *   - 'failed'      : Haikuの呼び出しが失敗した
  * TTSの失敗は致命ではない（そのチャンクはテキスト表示のみ）。
+ *
+ * 字幕（onCaption）: 読み上げありなら、音声の進みに合わせて単語単位で出す（captionReveal.ts）。
+ * 読み上げなしなら生成途中のテキストをそのまま出す。
  */
 
 import type { AppLevel, ConversationPhase, Scenario, ScenarioStep, Turn } from '../../lib/types';
@@ -17,7 +20,11 @@ import type { Usage } from '../llm/anthropicClient';
 import { nextAiTurn as defaultNextAiTurn } from '../llm/haikuPartner';
 import { stripStageDirections } from '../llm/sanitizeAiText';
 import type { TtsSession } from '../speech/azureTts';
+import { CAPTION_LEAD_MS, joinCaption, revealWords } from './captionReveal';
 import { SpeechQueue, takeSpeakableChunk, type PlayAudio } from './speechQueue';
+
+/** 再生中チャンクの字幕を進める間隔。 */
+const CAPTION_TICK_MS = 80;
 
 export interface AiTurnParams {
   apiKey: string;
@@ -30,6 +37,8 @@ export interface AiTurnParams {
   tts: Pick<TtsSession, 'synth' | 'reset'> | null;
   /** 表示用のAI発話（ト書き除去済み・生成途中）。 */
   onDraft?: (text: string) => void;
+  /** 画面に出すAI発話の字幕（読み上げに合わせて伸びる。ストリーム終了後も再生が終わるまで呼ばれる）。 */
+  onCaption?: (text: string) => void;
   onFirstText?: () => void;
   /** 最初の音が実際に鳴り始めた。 */
   onFirstAudio?: () => void;
@@ -72,9 +81,37 @@ export function startAiTurn(p: AiTurnParams): AiTurnHandle {
     resolveDone = resolve;
   });
 
+  // --- 字幕（読み上げに同期） ---
+  const spokenChunks: string[] = [];
+  let captionTimer: ReturnType<typeof setInterval> | null = null;
+  const stopCaptionTimer = () => {
+    if (captionTimer !== null) clearInterval(captionTimer);
+    captionTimer = null;
+  };
+  const emitCaption = (current: string) => {
+    if (!settled) p.onCaption?.(joinCaption(spokenChunks, current));
+  };
+  const startChunkCaption = (text: string, durationMs: number | null) => {
+    stopCaptionTimer();
+    if (durationMs === null || durationMs <= 0) {
+      emitCaption(text);
+      return;
+    }
+    const startAt = performance.now();
+    const tick = () => emitCaption(revealWords(text, (performance.now() - startAt + CAPTION_LEAD_MS) / durationMs));
+    tick();
+    captionTimer = setInterval(tick, CAPTION_TICK_MS);
+  };
+  const endChunkCaption = (text: string) => {
+    stopCaptionTimer();
+    spokenChunks.push(text);
+    emitCaption('');
+  };
+
   const settle = (kind: AiTurnOutcome['kind'], error?: string) => {
     if (settled) return;
     settled = true;
+    stopCaptionTimer();
     resolveDone({
       kind,
       text: stripStageDirections(full),
@@ -96,6 +133,8 @@ export function startAiTurn(p: AiTurnParams): AiTurnHandle {
         onBacklogEmpty: () => pump(false),
         onDrained: () => settle('drained'),
         onError: (message) => p.onTtsError?.(message),
+        onChunkStart: startChunkCaption,
+        onChunkEnd: endChunkCaption,
       })
     : null;
 
@@ -144,6 +183,7 @@ export function startAiTurn(p: AiTurnParams): AiTurnHandle {
       full += delta;
       buffer += delta;
       p.onDraft?.(stripStageDirections(full));
+      if (!queue) p.onCaption?.(stripStageDirections(full));
       pump(false);
     },
   }).then(
