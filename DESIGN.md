@@ -303,6 +303,7 @@ M13で「PAなしの音声認識（§6d）でテキストだけ取り、話し�
 - `azurePaStreaming.ts` と同じ流儀: SDK事前ロード（prewarmSpeechSdk）・WS事前接続（openConnection）・開始タイムアウト10秒・送信スロットル無効化・フレーズヒント（buildPhraseHints）・closeConnection先の後片付け。接続完了前の音声はコントローラがバッファし、完了後に到着順で流す（話し始めの取りこぼし防止）
 - 送信タップ時は `finish(600ms)`: 送信を締めて残りの確定を最大600ms待つ。確定が来なければ部分認識のテキストで送る
 - 開始失敗・開始後のエラーは一時停止（error）＋案内。「再開」で新しいセッションを張る
+- **接続失敗の自動回復（M13補修・iPhone実測）**: 初回実機で `Unable to contact server. StatusCode: 1006`（WebSocketのハンドシェイク拒否）が発生。区切りの指定は URL パラメータ `segmentationSilenceTimeoutMs` にも載るため、これが拒否された疑いがある。対策: ①認識結果を1件も受け取る前の接続エラーは、コントローラが1回だけ自動で張り直し、そのセグメントで録った音声を最初から送り直す ②区切り指定付きの接続がそう失敗したら、以降そのアプリセッション中は区切りを指定しない（SDK既定の区切り。`shouldDropSegmentation`）。張り直しも失敗したら（キー・リージョン誤り、今月の無料枠の使い切り、通信遮断の疑い）その旨を案内して一時停止。診断ログの `[STT]` 行に「区切り指定あり/なし」を記録する
 
 ### 6b. scripted 発音評価（キーフレーズ予習用）
 - referenceText=キーフレーズ文。enableMiscue=true。他は6aと同じ。completenessScoreあり

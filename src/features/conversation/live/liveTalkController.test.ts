@@ -242,6 +242,7 @@ describe('liveTalkController', () => {
     t.ai('drained');
     t.advance(150);
     await flush();
+    t.stts[0].opts.onPartial('Well', 100, 200);
     t.stts[0].opts.onError(new Error('接続が切れました'));
     expect(t.c.getView().paused).toBe('error');
     expect(t.notices.some((n) => n?.includes('接続が切れました'))).toBe(true);
@@ -282,5 +283,61 @@ describe('levelFromChunk', () => {
   it('無音は0、大きい音は1で頭打ち', () => {
     expect(levelFromChunk(new Float32Array(10))).toBe(0);
     expect(levelFromChunk(new Float32Array(10).fill(0.9))).toBe(1);
+  });
+});
+
+describe('liveTalkController: 接続失敗からの自動再接続', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('認識結果が来る前の接続エラーは1回だけ自動で張り直し、ここまでの音声を送り直す', async () => {
+    const t = setup();
+    t.c.start();
+    t.ai('started');
+    t.ai('drained');
+    t.advance(150);
+    await flush();
+    t.speak();
+    t.speak();
+    const sentBefore = t.stts[0].written;
+    expect(sentBefore).toBeGreaterThan(0);
+    t.stts[0].opts.onError(new Error('Unable to contact server. StatusCode: 1006'));
+    await flush();
+    expect(t.stts).toHaveLength(2);
+    expect(t.stts[0].aborted).toBe(true);
+    expect(t.stts[1].written).toBe(sentBefore);
+    expect(t.c.getView().phase).toBe('listening');
+    expect(t.c.getView().paused).toBeNull();
+  });
+
+  it('再接続も失敗したら一時停止し、1006ならキー・無料枠の確認を案内する', async () => {
+    const t = setup();
+    t.c.start();
+    t.ai('started');
+    t.ai('drained');
+    t.advance(150);
+    await flush();
+    t.stts[0].opts.onError(new Error('StatusCode: 1006'));
+    await flush();
+    t.stts[1].opts.onError(new Error('StatusCode: 1006'));
+    expect(t.c.getView().paused).toBe('error');
+    expect(t.notices.some((n) => n?.includes('無料枠'))).toBe(true);
+  });
+
+  it('認識結果を受け取った後のエラーは張り直さずに一時停止する', async () => {
+    const t = setup();
+    t.c.start();
+    t.ai('started');
+    t.ai('drained');
+    t.advance(150);
+    await flush();
+    t.stts[0].opts.onPartial('hello', 100, 300);
+    t.stts[0].opts.onError(new Error('connection lost'));
+    expect(t.stts).toHaveLength(1);
+    expect(t.c.getView().paused).toBe('error');
   });
 });

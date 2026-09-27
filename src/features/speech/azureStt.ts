@@ -12,6 +12,10 @@
  * - 後片付け: closeConnection→connection.close→recognizer.close→audioConfig→speechConfig の順
  *   （F0の同時接続1本をWS残留で塞がないため。azurePaStreaming と同じ方針）
  * - 失敗契約: 開始失敗は throw、開始後の失敗は onError で通知する
+ * - 区切り設定の自動無効化（M13補修）: 区切りの指定はWebSocketのURLパラメータにも載るため、
+ *   サービス側が受け付けないとハンドシェイクが拒否され 1006 で接続できない（iPhone実測）。
+ *   区切りを指定した接続が、認識結果を1件も返す前に接続エラーで終わったら、以降このアプリ
+ *   セッション中は区切りを指定しない（SDK既定の区切り）。呼び出し側は1回だけ再接続する
  */
 
 import {
@@ -25,6 +29,30 @@ import { pcmBytesToSeconds, START_TIMEOUT_MS } from './azurePaStreaming';
 import { logPaDebug } from './paDebugLog';
 
 export type SttSegmentation = { strategy: 'time'; silenceMs: number } | { strategy: 'semantic' };
+
+/** 区切り指定付きの接続が拒否されたか（アプリセッション中のみ。リロードで再挑戦する）。 */
+let segmentationRejected = false;
+
+export function isSegmentationRejected(): boolean {
+  return segmentationRejected;
+}
+
+/** テスト用。 */
+export function resetSegmentationRejected(): void {
+  segmentationRejected = false;
+}
+
+/**
+ * 接続エラーが「区切り指定が原因かもしれない」ものかの純関数。区切りを指定した接続で、
+ * 認識結果を1件も受け取る前に接続系のエラー（1006等のハンドシェイク拒否）で終わった場合。
+ */
+export function shouldDropSegmentation(opts: {
+  usedCustomSegmentation: boolean;
+  sawRecognitionEvent: boolean;
+  connectionError: boolean;
+}): boolean {
+  return opts.usedCustomSegmentation && !opts.sawRecognitionEvent && opts.connectionError;
+}
 
 /** 会話中の既定の区切り（無音500ms）。 */
 export const DEFAULT_STT_SEGMENTATION: SttSegmentation = { strategy: 'time', silenceMs: 500 };
@@ -67,11 +95,22 @@ export async function startLiveStt(opts: LiveSttOptions): Promise<LiveSttSession
   // 接続遅延時のバックログ一括送信が実時間ペーシングで待たされないようにする（§6a）。
   speechConfig.setProperty('SPEECH-TransmitLengthBeforThrottleMs', '300000');
   const segmentation = opts.segmentation ?? DEFAULT_STT_SEGMENTATION;
-  if (segmentation.strategy === 'time') {
+  const useCustomSegmentation = !segmentationRejected;
+  if (!useCustomSegmentation) {
+    // 区切り指定が拒否された実績あり: SDK既定の区切りで接続する（URLパラメータを付けない）。
+  } else if (segmentation.strategy === 'time') {
     speechConfig.setProperty(SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, String(segmentation.silenceMs));
   } else {
     speechConfig.setProperty(SpeechSDK.PropertyId.Speech_SegmentationStrategy, 'Semantic');
   }
+  let sawRecognitionEvent = false;
+  /** 区切り指定が原因の疑いがある接続失敗なら、以降は区切りを指定しない（ファイル冒頭参照）。 */
+  const noteConnectionFailure = (connectionError: boolean) => {
+    if (shouldDropSegmentation({ usedCustomSegmentation: useCustomSegmentation, sawRecognitionEvent, connectionError })) {
+      segmentationRejected = true;
+      logPaDebug('[STT] 区切り指定付きの接続が拒否された疑い→以降は区切り指定なしで接続');
+    }
+  };
 
   const format = SpeechSDK.AudioStreamFormat.getWaveFormatPCM(16000, 16, 1);
   const pushStream = SpeechSDK.AudioInputStream.createPushStream(format);
@@ -98,6 +137,7 @@ export async function startLiveStt(opts: LiveSttOptions): Promise<LiveSttSession
   const alive = () => state === 'starting' || state === 'running' || state === 'finishing';
 
   recognizer.recognizing = (_s, e) => {
+    sawRecognitionEvent = true;
     if (!alive() || !e.result.text) return;
     const offsetMs = e.result.offset / TICKS_PER_MS;
     if (firstPartialLagMs === null && firstWriteAt !== null) {
@@ -107,6 +147,7 @@ export async function startLiveStt(opts: LiveSttOptions): Promise<LiveSttSession
     opts.onPartial(e.result.text, offsetMs, e.result.duration / TICKS_PER_MS);
   };
   recognizer.recognized = (_s, e) => {
+    sawRecognitionEvent = true;
     if (!alive()) return;
     const offsetMs = e.result.offset / TICKS_PER_MS;
     const durationMs = e.result.duration / TICKS_PER_MS;
@@ -132,7 +173,12 @@ export async function startLiveStt(opts: LiveSttOptions): Promise<LiveSttSession
     } else {
       err = new Error(e.errorDetails || 'Azure Speechでキャンセルされました。');
     }
-    logPaDebug(`[STT] エラー ${err.name}: ${truncateDetail(err.message)}`);
+    noteConnectionFailure(
+      e.errorCode === SpeechSDK.CancellationErrorCode.ConnectionFailure || /1006/.test(e.errorDetails ?? ''),
+    );
+    logPaDebug(
+      `[STT] エラー ${err.name}: ${truncateDetail(err.message)}（区切り指定${useCustomSegmentation ? 'あり' : 'なし'}）`,
+    );
     opts.onError(err);
   };
   recognizer.sessionStopped = () => {
@@ -183,7 +229,10 @@ export async function startLiveStt(opts: LiveSttOptions): Promise<LiveSttSession
       );
     });
   } catch (err) {
-    logPaDebug(`[STT] 開始に失敗 (${err instanceof Error ? `${err.name}: ${truncateDetail(err.message)}` : String(err)})`);
+    noteConnectionFailure(true);
+    logPaDebug(
+      `[STT] 開始に失敗 (${err instanceof Error ? `${err.name}: ${truncateDetail(err.message)}` : String(err)})（区切り指定${useCustomSegmentation ? 'あり' : 'なし'}）`,
+    );
     state = 'closed';
     closeAll();
     throw err;
