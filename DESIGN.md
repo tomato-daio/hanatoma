@@ -250,6 +250,7 @@ M13で「PAなしの音声認識（§6d）でテキストだけ取り、話し�
 - 状態（liveMachine）: off → aiThinking → aiSpeaking →（drained+150ms）→ listening → hearing（部分認識あり）→ endpointing（確定文あり）→ commit → aiThinking…。一時停止は2種: holds（hint/text/background。自動で戻る）と paused（user/idle/error/mic/cap。「再開」タップで戻る）。確定文は一時停止をはさんでも同じターンに引き継ぐ
 - マイク方式（設定 `micMode`）: **既定 `perTurn`**＝聞き取りの間だけ getUserMedia し、AIが話す間は閉じる（iPhoneで実績のある動き。マイク使用中はiOSが通話用の経路に切り替えてAI音声が小さくなることがあるため）。`keepOpen`（実験）＝会話中ずっと開いたまま・`navigator.audioSession.type='play-and-record'`。トラックの mute は一時停止（mic）、ended はマイク停止として再開タップへ
 - 開始タップ: 開始時にAudioContextをresume（iOSの再生アンロック）し、マイク許可を先に取っておく（perTurnは一度開いてすぐ閉じる）
+- **AI発話の字幕は読み上げに同期**（`captionReveal.ts`）: Haikuの文字は音声より数秒早く届くため、生成途中のテキストは出さず、鳴っているチャンクを音声の長さに比例して単語単位で出す（声より250ms先行）。ストリーム終了で履歴には入れるが、吹き出しは再生が終わるまで字幕のまま（`speakingTurnAt`）。割り込み時は全文の吹き出しに切り替える。TTSなし・合成失敗のチャンクはそのまま全文を出す
 - テキスト入力: キーボードアイコンで切替（聞き取りは自動で止まる）。PAなし（`inputMode:'text'`）
 - ひとくち（bite）: 1往復したらAIの返答が終わった時点で聞き取りを止め、完了ボタンを出す
 - 使用量: STTへ送った音声秒と会話後PAの音声秒を `paSeconds` に加算し、日次キャップ `paMinutes`（表示名「音声認識・発音評価（分）」）で判定。超過時は聞き取らずテキスト入力へ案内

@@ -96,10 +96,10 @@ export function takeSpeakableChunk(
   return { chunk: chunk.length > 0 ? chunk : null, rest: buffer.slice(end).replace(/^\s+/, '') };
 }
 
-/** 再生1回ぶん。onStartは実際に音が出始めた瞬間、stopは割り込み用。 */
+/** 再生1回ぶん。onStartは実際に音が出始めた瞬間（分かれば音声の長さms付き）、stopは割り込み用。 */
 export type PlayAudio = (
   audio: ArrayBuffer,
-  hooks: { onStart: () => void; setStopper: (stop: () => void) => void },
+  hooks: { onStart: (durationMs?: number) => void; setStopper: (stop: () => void) => void },
 ) => Promise<void>;
 
 /** 統一AudioContextでデコード→再生する既定のプレイヤー。 */
@@ -125,7 +125,7 @@ export const playWithSharedContext: PlayAudio = async (audio, hooks) => {
       resolve();
     });
     source.start();
-    hooks.onStart();
+    hooks.onStart(audioBuffer.duration * 1000);
   });
 };
 
@@ -141,6 +141,10 @@ export interface SpeechQueueOptions {
   onDrained?: () => void;
   /** 合成/再生エラー時（そのチャンクは読み上げを諦める。テキスト表示は続く）。 */
   onError?: (message: string) => void;
+  /** チャンクの音が鳴り始めた（字幕の同期用。durationMsは分からなければnull）。 */
+  onChunkStart?: (text: string, durationMs: number | null) => void;
+  /** チャンクの再生が終わった（失敗・スキップを含む。interrupt後は呼ばない）。 */
+  onChunkEnd?: (text: string) => void;
 }
 
 /**
@@ -196,8 +200,9 @@ export class SpeechQueue {
         const audio = await audioPromise;
         if (this.interrupted) return;
         await this.play(audio, {
-          onStart: () => {
+          onStart: (durationMs) => {
             markStarted();
+            if (!this.interrupted) this.opts.onChunkStart?.(trimmed, durationMs ?? null);
             if (!this.firstAudioFired && !this.interrupted) {
               this.firstAudioFired = true;
               this.opts.onFirstAudioStart?.();
@@ -214,6 +219,7 @@ export class SpeechQueue {
       })
       .finally(() => {
         markStarted();
+        if (!this.interrupted) this.opts.onChunkEnd?.(trimmed);
         this.pending -= 1;
         this.maybeDrained();
       });
