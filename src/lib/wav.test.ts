@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeWavPcm16 } from './wav';
+import { encodeWavPcm16, trimPcm16, wavFromPcm16 } from './wav';
 
 function readAsciiString(view: DataView, offset: number, length: number): string {
   let s = '';
@@ -100,5 +100,38 @@ describe('encodeWavPcm16', () => {
     expect(buffer.byteLength).toBe(44);
     const view = new DataView(buffer);
     expect(view.getUint32(40, true)).toBe(0);
+  });
+});
+
+describe('wavFromPcm16', () => {
+  it('PCMチャンクを連結して16k monoのWAVヘッダを付ける', () => {
+    const a = new Uint8Array([1, 0, 2, 0]);
+    const b = new Uint8Array([3, 0]).buffer;
+    const wav = wavFromPcm16([a, b]);
+    const view = new DataView(wav);
+    expect(wav.byteLength).toBe(44 + 6);
+    expect(view.getUint32(24, true)).toBe(16000);
+    expect(view.getUint16(22, true)).toBe(1);
+    expect(view.getUint32(40, true)).toBe(6);
+    expect(Array.from(new Uint8Array(wav, 44))).toEqual([1, 0, 2, 0, 3, 0]);
+  });
+});
+
+describe('trimPcm16', () => {
+  // 16kHz PCM16 = 32バイト/ms
+  const oneSecond = new Uint8Array(32000).map((_, i) => i % 256);
+
+  it('前後に余白を付けて切り出す', () => {
+    const r = trimPcm16(oneSecond, 400, 600, { padMs: 100 });
+    expect(r.byteLength).toBe(400 * 32);
+    expect(r[0]).toBe(oneSecond[300 * 32]);
+  });
+
+  it('範囲外はクランプする', () => {
+    expect(trimPcm16(oneSecond, 0, 2000, { padMs: 300 }).byteLength).toBe(32000);
+  });
+
+  it('逆転した範囲は空', () => {
+    expect(trimPcm16(oneSecond, 800, 100, { padMs: 0 }).byteLength).toBe(0);
   });
 });

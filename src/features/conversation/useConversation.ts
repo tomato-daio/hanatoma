@@ -1,12 +1,14 @@
 /**
- * 会話ループの状態機械（DESIGN.md §4, §5。アプリの心臓部）。
+ * 会話の状態機械（DESIGN.md §4, §5。アプリの心臓部）。
  *
- * 1ターンの流れ:
- *   録音停止 → WAV変換 → Azure unscripted PA（認識+発音採点） → 認識テキスト即表示
- *   → Haiku streaming（テキスト逐次表示） → 文境界ごとにTTS合成・順次再生
+ * M13（ハンズフリー・リアルタイム会話）で役割を分けた:
+ *   - このフック: 会話データ（ターン・フェーズ・ステップ）、AIターンの実行、保存、使用量、キーフレーズ予習
+ *   - live/useLiveTalk: 音声の聞き取りとターン交代（話し終わりの自動検知）。submitUtterance を呼ぶ側
  *
- * 責務: フェーズ/ステップ進行・DB永続化・usageLog加算・日次キャップ判定・Wake Lock。
- * PA/TTS/LLMの各モジュールは呼ぶだけで、失敗時の分岐（PA=azureError、TTS=throw）はここで吸収する。
+ * 1ターンの流れ（音声）: 聞き取り（PAなしSTT）→ 話し終わりで submitUtterance
+ *   → DB書き込みを待たずに即 Haiku streaming → 1文目から順にTTS → 全部再生し終えたら 'drained'
+ *   → useLiveTalk が次の聞き取りを始める。発音評価は会話終了後（sessionEnd.ts / deferredPa.ts）。
+ * キーフレーズ予習（lessonのみ）は従来どおりタップ録音＋scripted発音評価をその場で行う。
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -20,7 +22,7 @@ import {
 } from '../../lib/db';
 import { learningDate } from '../../lib/dates';
 import { decodeToMono16k, WHISPER_SAMPLE_RATE } from '../../lib/audio';
-import { encodeWavPcm16 } from '../../lib/wav';
+import { encodeWavPcm16, wavFromPcm16 } from '../../lib/wav';
 import { createWakeLockController } from '../../lib/wakeLock';
 import { getLevelParams } from '../../lib/level/params';
 import { canRunPa } from '../../lib/usage/caps';
@@ -35,44 +37,53 @@ import {
   type Scenario,
   type ScenarioStep,
   type Turn,
+  type UsageDay,
 } from '../../lib/types';
 import { assessSpeech, type AssessSpeechResult } from '../speech/azurePaUnscripted';
 import { prewarmSpeechSdk } from '../speech/azurePaStreaming';
+import { createTtsSession, type TtsSession } from '../speech/azureTts';
 import { logPaDebug } from '../speech/paDebugLog';
 import { getAnthropicApiKey } from '../settings/anthropicKeyConfig';
-import { nextAiTurn } from '../llm/haikuPartner';
-import { stripStageDirections } from '../llm/sanitizeAiText';
 import type { RecordingResult } from '../recorder/useRecorder';
 import { getScenarioById } from '../scenarios/loadScenarios';
+import { startAiTurn, type AiTurnHandle } from './aiTurn';
+import { createConversationWriter, type ConversationWriter } from './conversationWriter';
+import type { TurnClip } from './deferredPa';
 import { buildPhraseHints } from './phraseHints';
-import { SpeechQueue, splitSentences } from './speechQueue';
-import { beginVoiceCapture, shouldSkipBatch, type VoiceCaptureHandle } from './voiceCapture';
+import { beginVoiceCapture, type VoiceCaptureHandle } from './voiceCapture';
 
 export type ConversationBusy = 'idle' | 'assessing' | 'thinking' | 'speaking';
 
-/**
- * 発音評価（streaming確定 + batchフォールバック）の合計待ちの全体上限（DESIGN.md §6a-2）。
- * これを超えたら in-flight の認識を abort して会話を止めない。signalは capture.finish
- * （voiceCapture層でrace）と batch recognizeOnce の両方へ貫通する。
- */
-const PA_DEADLINE_UNSCRIPTED_MS = 15_000;
+/** AIターンの進行を聞き取り側（useLiveTalk）へ知らせるイベント。 */
+export type AiEvent = 'started' | 'firstAudio' | 'drained' | 'interrupted' | 'failed';
+
 /**
  * キーフレーズ予習（scripted）の全体上限。正常系は stream確定≤4s + 短文batch（韻律あり→なし
- * 最大2回でも各1〜3秒）で収まる。予習は1フレーズ数秒の短い操作の反復なので、unscriptedより
- * 早めに見切って再試行へ誘導する（従来はデッドライン自体が無く最悪48秒級だった）。
+ * 最大2回でも各1〜3秒）で収まる。予習は1フレーズ数秒の短い操作の反復なので早めに見切って再試行へ誘導する。
  */
 const PA_DEADLINE_SCRIPTED_MS = 12_000;
 
-/** 直近ターンのレイテンシ計測（DESIGN.md §5。M3の検収項目）。 */
+/** 直近ターンのレイテンシ（DESIGN.md §5。M13でハンズフリー用に区間を定義し直した）。 */
 export interface TurnLatency {
-  wavMs: number;
-  paMs: number;
-  /** Haiku呼び出し開始→最初のテキスト到着。 */
-  haikuFirstTextMs: number;
-  /** ユーザー発話（録音停止）→AI音声の再生開始。 */
-  totalToSpeechMs: number | null;
-  /** 発音評価の経路（M11）: stream=録音中ストリーミング / batch=停止後一括（フォールバック）。 */
-  paSource?: 'stream' | 'batch';
+  /** 話し終わり→ターン確定（Azureの区切り無音＋話し終わり待ち）。テキスト入力はnull。 */
+  endpointMs: number | null;
+  /** ターン確定→Haikuの最初のテキスト。 */
+  aiFirstTextMs: number | null;
+  /** Haikuの最初のテキスト→AIの最初の音（TTS合成・デコード込み）。 */
+  ttsMs: number | null;
+  /** 話し終わり（テキストは送信）→AIの最初の音。 */
+  totalMs: number | null;
+}
+
+/** ユーザーの発話1回（音声またはテキスト）。 */
+export interface Utterance {
+  text: string;
+  inputMode: 'voice' | 'text';
+  thinkingMs?: number | null;
+  /** 会話後の発音評価用の音声（16kHz mono PCM16・発話区間）。 */
+  pcm?: Uint8Array | null;
+  /** 話し終わりの時刻（performance.now基準。レイテンシ計測用）。 */
+  speechEndAt?: number | null;
 }
 
 /**
@@ -89,6 +100,26 @@ const SYNTHETIC_OPENER: Turn = {
 
 const DEFAULT_TTS_VOICE = 'en-US-JennyNeural';
 
+/** 会話開始時に先読みしておく設定（AI呼び出しの直前にIndexedDBを待たないため）。 */
+interface PreloadedConfig {
+  apiKey: string | null;
+  saveTurnAudio: boolean;
+  caps: DailyCaps;
+}
+
+export interface SpeechBudget {
+  /** 今日の音声認識・発音評価の上限に達していないか。 */
+  canListen(): boolean;
+  /** Azureへ送った音声の秒数を使用量に加算する。 */
+  addSeconds(seconds: number): void;
+}
+
+export interface FinishedConversation {
+  conversation: Conversation;
+  /** 会話後の発音評価の材料（音声ターンの音声）。 */
+  clips: TurnClip[];
+}
+
 export interface UseConversationResult {
   loading: boolean;
   scenario: Scenario | null;
@@ -96,10 +127,10 @@ export interface UseConversationResult {
   mode: ConversationMode;
   turns: Turn[];
   phase: ConversationPhase;
-  /** AIとの対話が始まっているか（lessonモードはキーフレーズ予習後にbeginDialogueで開始）。 */
+  /** AIとの対話が始まっているか。 */
   dialogueStarted: boolean;
-  /** lessonモードでキーフレーズ予習を終えて対話を開始する（予習スキップ時も呼ぶ）。 */
-  beginDialogue: () => Promise<void>;
+  /** 対話を開始する（AIが最初に話す）。開始タップ／キーフレーズ予習の「会話をはじめる」から呼ぶ。 */
+  beginDialogue: () => void;
   /** キーフレーズ予習の1回分（scripted発音評価）。結果を返しAIターンは起こさない。 */
   submitKeyPhrase: (phraseEn: string, recording: RecordingResult) => Promise<PaResult | null>;
   /** biteモードで1往復が済み、完了ボタンを出してよい状態。 */
@@ -111,31 +142,46 @@ export interface UseConversationResult {
   /** ストリーミング中のAI発話（確定後はturnsに入る）。 */
   aiDraft: string;
   error: string | null;
-  /** エラーではない案内（「聞き取れませんでした」等）。 */
+  /** エラーではない案内。 */
   info: string | null;
+  setInfo: (message: string | null) => void;
   /** ヒント表示段階 0=非表示 1=日本語 2=英語言い出し 3=模範解答。 */
   hintLevel: 0 | 1 | 2 | 3;
   showNextHint: () => void;
   /** 模範解答を見た回数（XP計算用・M7）。 */
   modelAnswersShown: number;
-  /**
-   * 音声ターンの録音開始時に呼ぶ（M11: キャップ判定→Wake Lock→ストリーミング評価開始）。
-   * falseなら録音を開始しないこと（日次上限到達。infoに案内を出す）。
-   */
-  beginVoiceTurn: () => Promise<boolean>;
   /** キーフレーズ予習の録音開始時に呼ぶ（M11: scriptedストリーミング評価開始）。 */
   beginKeyPhrase: (phraseEn: string) => Promise<boolean>;
-  /** useRecorderのonAudioChunkへ渡す（録音中PCMをストリーミング評価へ流す）。 */
+  /** useRecorderのonAudioChunkへ渡す（キーフレーズ録音中PCMをストリーミング評価へ流す）。 */
   handleAudioChunk: (chunk: Float32Array, sampleRate: number) => void;
   /** 録音が結果なしで終わった場合（OSによるマイク停止等）にストリーミング評価を破棄する。 */
   cancelVoiceCapture: () => void;
-  submitVoice: (recording: RecordingResult) => Promise<void>;
-  submitText: (text: string) => Promise<void>;
-  finish: () => Promise<Conversation | null>;
+  /** ユーザー発話を確定してAIターンを始める（AI発話中などで受け付けられなければfalse）。 */
+  submitUtterance: (utterance: Utterance) => boolean;
+  submitText: (text: string) => void;
+  /** AIの発話を止める（割り込み）。 */
+  interruptAi: () => void;
+  /** AIターンの進行イベントを購読する（戻り値で解除）。 */
+  subscribeAi: (listener: (event: AiEvent) => void) => () => void;
+  /** 今の文脈の音声認識フレーズヒント（§6a。ガイド中はキーフレーズ＋現在stepの模範解答）。 */
+  phraseHintsNow: () => string[];
+  speech: SpeechBudget;
+  finish: () => Promise<FinishedConversation | null>;
   abandon: () => Promise<void>;
   latency: TurnLatency | null;
   /** ユーザーの現在のアプリレベル（ヒント表示・TTS速度の参照用）。 */
   level: AppLevel;
+}
+
+/** 会話終了時、音声ターンに会話中の音声(WAV)を添付する（saveTurnAudio=ONのとき）。 */
+function attachTurnAudio(turns: Turn[], clips: TurnClip[]): Turn[] {
+  if (clips.length === 0) return turns;
+  const byAt = new Map(clips.map((c) => [c.at, c]));
+  return turns.map((t) => {
+    const clip = t.role === 'user' && t.inputMode === 'voice' ? byAt.get(t.at) : undefined;
+    if (!clip) return t;
+    return { ...t, audioBlob: new Blob([wavFromPcm16([clip.pcm])], { type: 'audio/wav' }), mimeType: 'audio/wav' };
+  });
 }
 
 export function useConversation(conversationId: string | undefined): UseConversationResult {
@@ -157,165 +203,169 @@ export function useConversation(conversationId: string | undefined): UseConversa
 
   // レンダリングに影響しない進行中データはrefで持つ
   const turnsRef = useRef<Turn[]>([]);
-  const conversationRef = useRef<Conversation | null>(null);
+  const writerRef = useRef<ConversationWriter | null>(null);
+  const scenarioRef = useRef<Scenario | null>(null);
+  const configRef = useRef<PreloadedConfig | null>(null);
   const phaseRef = useRef<ConversationPhase>('guided');
   const stepIndexRef = useRef(0);
-  const lastAiSpokeAtRef = useRef<number | null>(null);
-  const recordStartAtRef = useRef<number | null>(null);
-  // runAiTurnはロード用effectから「初期レンダー時点のクロージャ」で呼ばれるため、
-  // レベルはstateではなくrefから読む（stateはUI表示用）。
   const levelRef = useRef<AppLevel>(2);
-  const queueRef = useRef<SpeechQueue | null>(null);
+  const ttsRef = useRef<TtsSession | null>(null);
+  const aiRef = useRef<AiTurnHandle | null>(null);
+  /** AIターンの世代。中断・終了で進め、古いターンの遅れた完了を無視する。 */
+  const genRef = useRef(0);
+  const listenersRef = useRef(new Set<(event: AiEvent) => void>());
+  const clipsRef = useRef<TurnClip[]>([]);
+  const lastAtRef = useRef(0);
+  /** 今日すでに使った音声認識・発音評価の秒数（開始時に読み込み、会話中はメモリで加算）。 */
+  const speechSecondsRef = useRef(0);
   const wakeLockRef = useRef(createWakeLockController());
   const openedRef = useRef(false);
   const processingRef = useRef(false);
-  /** 録音中のストリーミング発音評価（M11）。beginVoiceTurn/beginKeyPhraseで開始し、submit側で消費する。 */
+  const dialogueStartedRef = useRef(false);
+  /** キーフレーズ録音中のストリーミング発音評価（M11）。 */
   const captureRef = useRef<VoiceCaptureHandle | null>(null);
 
-  // --- 永続化ヘルパー ---
-  const persist = useCallback(async (updates: Partial<Conversation>) => {
-    const current = conversationRef.current;
-    if (!current) return;
-    const next: Conversation = { ...current, ...updates, turns: turnsRef.current };
-    conversationRef.current = next;
-    setConversation(next);
-    await putConversation(next);
+  const emit = useCallback((event: AiEvent) => {
+    for (const l of [...listenersRef.current]) l(event);
+  }, []);
+
+  const subscribeAi = useCallback((listener: (event: AiEvent) => void) => {
+    listenersRef.current.add(listener);
+    return () => {
+      listenersRef.current.delete(listener);
+    };
+  }, []);
+
+  // --- 保存（メモリ上で即更新し、IndexedDBへは裏で順番に書く） ---
+  const updateConversation = useCallback((fn: (c: Conversation) => Conversation) => {
+    const writer = writerRef.current;
+    if (!writer || writer.sealed) return;
+    setConversation(writer.update(fn));
   }, []);
 
   const appendTurn = useCallback(
-    async (turn: Turn) => {
+    (turn: Turn) => {
       turnsRef.current = [...turnsRef.current, turn];
       setTurns(turnsRef.current);
-      await persist({});
+      updateConversation((c) => ({ ...c, turns: turnsRef.current }));
     },
-    [persist],
+    [updateConversation],
   );
 
-  // --- AI発話（Haiku streaming → 文単位TTS） ---
-  const runAiTurn = useCallback(async (): Promise<void> => {
-    const sc = scenario ?? (await getScenarioById(conversationRef.current?.scenarioId ?? ''));
-    if (!sc) return;
-    const apiKey = await getAnthropicApiKey();
-    if (!apiKey) {
-      setError('Anthropic APIキーが未設定です。設定画面で登録してください。');
-      return;
-    }
+  /** 他のターンと重ならない単調増加のTurn.at（会話後の発音評価の突き合わせキー）。 */
+  const nextAt = () => {
+    const at = Math.max(Date.now(), lastAtRef.current + 1);
+    lastAtRef.current = at;
+    return at;
+  };
 
-    const curPhase = phaseRef.current;
-    const step = curPhase === 'guided' ? sc.steps[stepIndexRef.current] : undefined;
-    const curLevel = levelRef.current;
-    const ttsVoice = (await getAppState<string>('ttsVoice')) ?? DEFAULT_TTS_VOICE;
-    const ttsRate = getLevelParams(curLevel).ttsRate;
+  const recordUsage = useCallback((partial: Parameters<typeof addUsage>[1]) => {
+    void addUsage(learningDate(new Date()), partial).catch((err: unknown) =>
+      console.warn('[useConversation] 使用量の記録に失敗しました。', err),
+    );
+  }, []);
 
-    setBusy('thinking');
-    setAiDraft('');
+  // --- AI発話（Haiku streaming → TTS） ---
+  const runAiTurn = useCallback(
+    (timing?: { commitAt: number; speechEndAt: number | null }) => {
+      const sc = scenarioRef.current;
+      const cfg = configRef.current;
+      if (!sc || !cfg) return;
+      if (!cfg.apiKey) {
+        setError('Anthropic APIキーが未設定です。設定画面で登録してください。');
+        emit('failed');
+        return;
+      }
+      const gen = ++genRef.current;
+      const curPhase = phaseRef.current;
+      const step = curPhase === 'guided' ? sc.steps[stepIndexRef.current] : undefined;
+      const commitAt = timing?.commitAt ?? performance.now();
+      const speechEndAt = timing?.speechEndAt ?? null;
+      const tts = ttsRef.current;
 
-    const tStart = performance.now();
-    let firstTextAt: number | null = null;
-    let speechStartAt: number | null = null;
-    let ttsFailed = false;
+      setBusy('thinking');
+      setAiDraft('');
+      emit('started');
 
-    // 前のキューが残っていれば止める
-    queueRef.current?.stop();
-    const queue = new SpeechQueue({
-      voice: ttsVoice,
-      rate: ttsRate,
-      onAllDone: () => {
-        lastAiSpokeAtRef.current = Date.now();
-        setBusy('idle');
-      },
-      onError: () => {
-        // TTS失敗は読み上げを諦めテキスト表示のみ（DESIGN.md §6c: synthesizeはthrowする契約）
-        ttsFailed = true;
-        setInfo('AI音声の再生に失敗したため、テキストのみ表示しています。');
-      },
-    });
-    queueRef.current = queue;
-
-    let sentenceBuffer = '';
-    let fullText = '';
-    try {
-      const result = await nextAiTurn({
-        apiKey,
+      const handle = startAiTurn({
+        apiKey: cfg.apiKey,
         scenario: sc,
-        level: curLevel,
+        level: levelRef.current,
         history: [SYNTHETIC_OPENER, ...turnsRef.current],
         phase: curPhase,
         step,
-        onText: (delta) => {
-          if (firstTextAt === null) firstTextAt = performance.now();
-          fullText += delta;
-          // ト書き（*nods* 等の演技描写）は表示・読み上げの前に除去する（§7a。プロンプトで
-          // 禁止済みだが混入時の防御。stripStageDirectionsは未閉鎖の末尾*...も伏せる）。
-          setAiDraft(stripStageDirections(fullText));
-          sentenceBuffer += delta;
-          const { complete, rest } = splitSentences(sentenceBuffer);
-          sentenceBuffer = rest;
-          for (const sentence of complete) {
-            const spoken = stripStageDirections(sentence);
-            if (!spoken) continue; // ト書きだけの文は読み上げない
-            if (speechStartAt === null) speechStartAt = performance.now();
-            queue.enqueue(spoken);
-          }
+        tts,
+        onDraft: (text) => {
+          if (gen === genRef.current) setAiDraft(text);
+        },
+        onFirstAudio: () => {
+          if (gen !== genRef.current) return;
+          setBusy('speaking');
+          emit('firstAudio');
+        },
+        onStreamEnd: ({ text }) => {
+          if (gen !== genRef.current) return;
+          // 保存もト書き除去後のテキスト（履歴に残すと以降のターンでHaikuが真似るため）。
+          if (text) appendTurn({ role: 'ai', text, at: nextAt(), phase: curPhase });
+          setAiDraft('');
+        },
+        onUsage: (usage, chars) => {
+          recordUsage({
+            haikuCalls: 1,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            ttsChars: tts ? chars : 0,
+          });
+        },
+        onTtsError: () => {
+          // TTS失敗は読み上げを諦めテキスト表示のみ（DESIGN.md §6c: synthesizeはthrowする契約）
+          if (gen === genRef.current) setInfo('AI音声の再生に失敗したため、テキストのみ表示しています。');
         },
       });
+      aiRef.current = handle;
 
-      // 残りの断片も読み上げる
-      const spokenRest = stripStageDirections(sentenceBuffer);
-      if (spokenRest) {
-        if (speechStartAt === null) speechStartAt = performance.now();
-        queue.enqueue(spokenRest);
-      }
-
-      const aiTurn: Turn = {
-        role: 'ai',
-        // 保存もト書き除去後のテキストにする（履歴に残すと以降のターンでHaikuが真似るため）。
-        text: stripStageDirections(result.text),
-        at: Date.now(),
-        phase: curPhase,
-      };
-      setAiDraft('');
-      await appendTurn(aiTurn);
-
-      const today = learningDate(new Date());
-      await addUsage(today, {
-        haikuCalls: 1,
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        cacheReadTokens: result.usage.cacheReadTokens,
-        ttsChars: ttsFailed ? 0 : result.text.length,
-      });
-
-      setLatency((prev) => ({
-        wavMs: prev?.wavMs ?? 0,
-        paMs: prev?.paMs ?? 0,
-        haikuFirstTextMs: firstTextAt !== null ? Math.round(firstTextAt - tStart) : -1,
-        totalToSpeechMs: prev && speechStartAt !== null ? Math.round(speechStartAt - tStart + prev.wavMs + prev.paMs) : null,
-        ...(prev?.paSource ? { paSource: prev.paSource } : {}),
-      }));
-
-      // 読み上げるものが無い（TTS失敗含む）ならこの場でidleへ
-      if (!queue.busy) {
-        lastAiSpokeAtRef.current = Date.now();
+      void handle.done.then((outcome) => {
+        if (gen !== genRef.current) return;
+        aiRef.current = null;
+        const t = outcome.timings;
+        setLatency({
+          endpointMs: speechEndAt !== null ? Math.round(commitAt - speechEndAt) : null,
+          aiFirstTextMs: t.firstTextAt !== null ? Math.round(t.firstTextAt - commitAt) : null,
+          ttsMs: t.firstTextAt !== null && t.firstAudioAt !== null ? Math.round(t.firstAudioAt - t.firstTextAt) : null,
+          totalMs: t.firstAudioAt !== null ? Math.round(t.firstAudioAt - (speechEndAt ?? commitAt)) : null,
+        });
+        if (t.firstAudioAt !== null) {
+          const sec = (ms: number) => (ms / 1000).toFixed(1);
+          logPaDebug(
+            `[会話] 発話終了→AI音声 ${sec(t.firstAudioAt - (speechEndAt ?? commitAt))}s` +
+              (speechEndAt !== null ? ` 確定${sec(commitAt - speechEndAt)}` : ' (テキスト)') +
+              (t.firstTextAt !== null
+                ? ` AI初文${sec(t.firstTextAt - commitAt)} TTS${sec(t.firstAudioAt - t.firstTextAt)}`
+                : ''),
+          );
+        }
+        if (outcome.kind === 'interrupted' && !outcome.streamCompleted && outcome.text) {
+          // 途中で止めたAI発話も履歴に残す（話の流れが途切れないように）。
+          appendTurn({ role: 'ai', text: outcome.text, at: nextAt(), phase: curPhase });
+        }
+        setAiDraft('');
+        if (outcome.kind === 'failed') setError(outcome.error ?? 'AIの応答生成に失敗しました。');
         setBusy('idle');
-      } else {
-        setBusy('speaking');
-      }
-    } catch (e: unknown) {
-      queue.stop();
-      setBusy('idle');
-      setError(e instanceof Error ? e.message : 'AIの応答生成に失敗しました。');
-    }
-  }, [appendTurn, scenario]);
+        emit(outcome.kind);
+      });
+    },
+    [appendTurn, emit, recordUsage],
+  );
 
-  // --- 初期ロード + AIの開幕発話 ---
+  // --- 初期ロード ---
   // StrictModeではeffectが「実行→cleanup→再実行」されるため、cancelledフラグ方式だと
   // 1回目の実行がキャンセルされ2回目がopenedRefガードで弾かれて永久にロード中になる。
   // openedRefの一度きりガードのみ使い、キャンセルはしない（実機で問題になった実バグの修正）。
   useEffect(() => {
     if (!conversationId || openedRef.current) return;
     openedRef.current = true;
-    // 初回録音時のSDK動的importコストを排除する（M11。失敗は無視され実行時に再import）。
+    // 初回の聞き取り時のSDK動的importコストを排除する（失敗は無視され実行時に再import）。
     prewarmSpeechSdk();
     void (async () => {
       try {
@@ -325,76 +375,107 @@ export function useConversation(conversationId: string | undefined): UseConversa
           setLoading(false);
           return;
         }
-        const sc = await getScenarioById(conv.scenarioId);
+        const [sc, profile, apiKey, ttsVoice, saveTurnAudio, caps, usage] = await Promise.all([
+          getScenarioById(conv.scenarioId),
+          getUserProfile(),
+          getAnthropicApiKey(),
+          getAppState<string>('ttsVoice'),
+          getAppState<boolean>('saveTurnAudio'),
+          getAppState<DailyCaps>('dailyCaps'),
+          getUsageDay(learningDate(new Date())),
+        ]);
         if (!sc) {
           setError('シナリオが見つかりません。');
           setLoading(false);
           return;
         }
-        const profile = await getUserProfile();
 
-        conversationRef.current = conv;
+        writerRef.current = createConversationWriter(conv, putConversation);
         turnsRef.current = conv.turns;
+        lastAtRef.current = conv.turns.reduce((m, t) => Math.max(m, t.at), 0);
+        scenarioRef.current = sc;
+        configRef.current = {
+          apiKey: apiKey ?? null,
+          saveTurnAudio: saveTurnAudio ?? true,
+          caps: caps ?? DEFAULT_DAILY_CAPS,
+        };
+        speechSecondsRef.current = usage.paSeconds;
         setConversation(conv);
         setScenario(sc);
         setTurns(conv.turns);
         levelRef.current = profile.level;
         setLevel(profile.level);
 
+        // AI発話用TTSは会話中ずっと1本の接続を使い回す（M13。事前接続で初音を早める）。
+        const tts = createTtsSession({
+          voice: ttsVoice ?? DEFAULT_TTS_VOICE,
+          rate: getLevelParams(profile.level).ttsRate,
+        });
+        tts.warm();
+        ttsRef.current = tts;
+
         // 途中再開はさせない仕様（§4）だが、activeな既存レコードを開いた場合は続きから表示だけする。
         // ガイドステップの進行はキーフレーズ予習ターンを除いた対話ターン数で数える
-        const dialogueUserTurns = conv.turns.filter(
-          (t) => t.role === 'user' && t.phase !== 'keyphrase',
-        ).length;
+        const dialogueUserTurns = conv.turns.filter((t) => t.role === 'user' && t.phase !== 'keyphrase').length;
         const nextStep = Math.min(dialogueUserTurns, sc.steps.length);
         stepIndexRef.current = nextStep;
         setStepIndex(nextStep);
         // biteモードはガイドを使わず最初からフリー会話（§4: 1往復だけの最小単位）
-        const startPhase: ConversationPhase =
-          conv.mode === 'bite' || nextStep >= sc.steps.length ? 'free' : 'guided';
+        const startPhase: ConversationPhase = conv.mode === 'bite' || nextStep >= sc.steps.length ? 'free' : 'guided';
         phaseRef.current = startPhase;
         setPhase(startPhase);
 
         const hasDialogue = conv.turns.some((t) => t.phase !== 'keyphrase');
         dialogueStartedRef.current = hasDialogue;
         setDialogueStarted(hasDialogue);
-
+        // AIの開幕発話は開始タップ（beginDialogue）で始める（M13: iOSの音声再生アンロックとマイク許可のため）。
         setLoading(false);
-
-        // lessonモードはキーフレーズ予習が先（beginDialogue待ち）。quick/biteは即AIが話し始める
-        if (!hasDialogue && conv.status === 'active' && conv.mode !== 'lesson') {
-          dialogueStartedRef.current = true;
-          setDialogueStarted(true);
-          await runAiTurn();
-        }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : '読み込みに失敗しました。');
         setLoading(false);
       }
     })();
-    // runAiTurnはref経由で最新stateを読むため依存に含めない（初回のみ実行したい）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   // 画面離脱時の後始末
   useEffect(() => {
     const wakeLock = wakeLockRef.current;
     return () => {
-      queueRef.current?.stop();
+      genRef.current += 1;
+      aiRef.current?.interrupt();
+      aiRef.current = null;
+      ttsRef.current?.close();
+      ttsRef.current = null;
       captureRef.current?.abort();
       captureRef.current = null;
       wakeLock.dispose();
     };
   }, []);
 
-  // --- ユーザー発話の共通処理（PA後/テキスト入力後） ---
-  const acceptUserTurn = useCallback(
-    async (turn: Turn) => {
+  // --- ユーザー発話の確定（音声・テキスト共通） ---
+  const submitUtterance = useCallback(
+    (u: Utterance): boolean => {
+      const text = u.text.trim();
+      if (!text || !writerRef.current || aiRef.current || processingRef.current) return false;
+      setError(null);
+      setInfo(null);
       hintLevelRef.current = 0;
       setHintLevel(0);
-      await appendTurn(turn);
+      const at = nextAt();
+      const turn: Turn = {
+        role: 'user',
+        text,
+        at,
+        phase: phaseRef.current,
+        inputMode: u.inputMode,
+        ...(u.thinkingMs !== undefined && u.thinkingMs !== null ? { thinkingMs: u.thinkingMs } : {}),
+      };
+      appendTurn(turn);
+      if (u.inputMode === 'voice' && u.pcm && u.pcm.byteLength > 0) {
+        clipsRef.current.push({ at, text, pcm: u.pcm });
+      }
       // ガイドフェーズのステップを進め、最後まで到達したらフリー会話へ
-      const sc = scenario;
+      const sc = scenarioRef.current;
       if (phaseRef.current === 'guided' && sc) {
         const next = stepIndexRef.current + 1;
         if (next >= sc.steps.length) {
@@ -405,163 +486,42 @@ export function useConversation(conversationId: string | undefined): UseConversa
           setStepIndex(next);
         }
       }
-      await runAiTurn();
+      runAiTurn({ commitAt: performance.now(), speechEndAt: u.speechEndAt ?? null });
+      return true;
     },
-    [appendTurn, runAiTurn, scenario],
-  );
-
-  const submitVoice = useCallback(
-    async (recording: RecordingResult) => {
-      if (processingRef.current) return;
-      processingRef.current = true;
-      setError(null);
-      setInfo(null);
-      const wakeLock = wakeLockRef.current;
-      await wakeLock.acquire();
-      // 全体デッドライン（DESIGN.md §6a-2）: streaming確定+batchの合計が長時間ブロックしないよう
-      // 上限を設ける。発火時は in-flight の認識を確実に abort して F0 のWSを解放する（race敗者放置に
-      // よる失敗連鎖の防止）。
-      const paDeadline = new AbortController();
-      const deadlineId = window.setTimeout(() => paDeadline.abort(), PA_DEADLINE_UNSCRIPTED_MS);
-      try {
-        const tStop = performance.now();
-        setBusy('assessing');
-        const today = learningDate(new Date());
-
-        // ストリーミング評価（M11）: 録音中に進めた認識の確定を待つ。失敗はnull→batchへ。
-        // タイムアウトでも録音中の部分結果があればサルベージして返る（azurePaStreaming.finish）。
-        // 日次キャップ判定は録音開始時（beginVoiceTurn）で実施済み。
-        const capture = captureRef.current;
-        captureRef.current = null;
-        let result: AssessSpeechResult | null = null;
-        let paSeconds = 0;
-        let paSource: 'stream' | 'batch' = 'stream';
-        let wavMs = 0;
-        let tPaStart = tStop;
-        if (capture) {
-          try {
-            // signalを渡す: デッドライン発火時はセッション確立待ち・確定待ちのどちらでも
-            // 即nullで返り、voiceCapture側がセッションを破棄する（従来はfinishが返るまで
-            // 中断できず、WSハング時に「評価中」が無期限化しえた）。
-            result = await capture.finish(paDeadline.signal);
-          } finally {
-            // 冪等な保険（voiceCapture内で破棄済みでも二重abortは無害）。
-            if (paDeadline.signal.aborted) capture.abort();
-          }
-          if (result) paSeconds = Math.round(capture.audioSeconds());
-        }
-
-        // batch見切り（DESIGN.md §6a-2）: 確定待ちタイムアウトかつ音声が閾値超なら、F0では
-        // batchも全体デッドライン内に完了する見込みが薄いため試みず即エラー表示にする
-        // （「7秒無駄に待って同じエラー」を「即言い直し」に変える）。
-        const skipBatch = capture ? shouldSkipBatch(capture.lastFailure(), capture.audioSeconds()) : false;
-        if (skipBatch) {
-          logPaDebug(`[capture] batch見送り（timeout+音声${capture!.audioSeconds().toFixed(1)}s）→即エラー表示`);
-        }
-
-        if (!result && !paDeadline.signal.aborted && !skipBatch) {
-          // batchフォールバック（従来経路）: 録音Blob全体をWAV化して一括評価する。
-          // Azure失敗時は例外ではなくpa.azureErrorで返る契約。デッドラインのsignalで中断可能。
-          paSource = 'batch';
-          const tDecode = performance.now();
-          const pcm = await decodeToMono16k(recording.blob);
-          const wavBlob = new Blob([encodeWavPcm16(pcm)], { type: 'audio/wav' });
-          wavMs = Math.round(performance.now() - tDecode);
-          tPaStart = performance.now();
-          // フレーズヒント（§6a）: キーフレーズ+（ガイド中のみ）現在stepの模範解答だけを渡す
-          // （全stepsの長文を渡すと認識がヒントへ引っ張られるover-biasingの実害があった）
-          result = await assessSpeech(wavBlob, {
-            mode: 'unscripted',
-            phraseHints: scenario
-              ? buildPhraseHints(scenario, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
-              : [],
-            signal: paDeadline.signal,
-          });
-          paSeconds = Math.round(pcm.length / WHISPER_SAMPLE_RATE);
-        }
-        const tPa = performance.now();
-        await addUsage(today, { paSeconds });
-
-        setLatency({
-          wavMs,
-          paMs: Math.round(tPa - tPaStart),
-          haikuFirstTextMs: -1,
-          totalToSpeechMs: null,
-          paSource,
-        });
-
-        if (!result || !result.recognizedText.trim()) {
-          setBusy('idle');
-          setInfo(
-            paDeadline.signal.aborted || skipBatch
-              ? '発音評価が時間内に完了しませんでした。通信状況を確認して、もう一度お試しください。'
-              : result?.pa.azureError
-                ? `発音評価でエラーが発生しました: ${result.pa.azureError}`
-                : '聞き取れませんでした。もう一度はっきり話してみてください。',
-          );
-          return;
-        }
-
-        // 部分テキスト最終サルベージ（§6a-2）で会話継続したターン: スコアは欠損（azureError入り）
-        // だがテキストはあるので会話は続く。欠損したことだけ知らせる。
-        if (result.pa.azureError) {
-          setInfo('今回は発音スコアを取得できませんでした（会話はこのまま続きます）。');
-        }
-
-        const saveAudio = (await getAppState<boolean>('saveTurnAudio')) ?? true;
-        const thinkingMs =
-          lastAiSpokeAtRef.current !== null && recordStartAtRef.current !== null
-            ? Math.max(0, recordStartAtRef.current - lastAiSpokeAtRef.current)
-            : undefined;
-
-        const userTurn: Turn = {
-          role: 'user',
-          text: result.recognizedText,
-          at: Date.now(),
-          phase: phaseRef.current,
-          inputMode: 'voice',
-          ...(saveAudio ? { audioBlob: recording.blob, mimeType: recording.mimeType } : {}),
-          pa: result.pa,
-          ...(thinkingMs !== undefined ? { thinkingMs } : {}),
-        };
-        await acceptUserTurn(userTurn);
-      } catch (e: unknown) {
-        setBusy('idle');
-        setError(e instanceof Error ? e.message : '音声の処理に失敗しました。');
-      } finally {
-        window.clearTimeout(deadlineId);
-        wakeLock.release();
-        processingRef.current = false;
-      }
-    },
-    [acceptUserTurn, scenario],
+    [appendTurn, runAiTurn],
   );
 
   const submitText = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || processingRef.current) return;
-      processingRef.current = true;
-      setError(null);
-      setInfo(null);
-      try {
-        const userTurn: Turn = {
-          role: 'user',
-          text: trimmed,
-          at: Date.now(),
-          phase: phaseRef.current,
-          inputMode: 'text',
-        };
-        await acceptUserTurn(userTurn);
-      } catch (e: unknown) {
-        setBusy('idle');
-        setError(e instanceof Error ? e.message : '送信に失敗しました。');
-      } finally {
-        processingRef.current = false;
-      }
+    (text: string) => {
+      submitUtterance({ text, inputMode: 'text' });
     },
-    [acceptUserTurn],
+    [submitUtterance],
   );
+
+  const interruptAi = useCallback(() => {
+    aiRef.current?.interrupt();
+  }, []);
+
+  const phraseHintsNow = useCallback((): string[] => {
+    const sc = scenarioRef.current;
+    // フレーズヒント（§6a）: キーフレーズ+（ガイド中のみ）現在stepの模範解答だけを渡す
+    // （全stepsの長文を渡すと認識がヒントへ引っ張られるover-biasingの実害があった）
+    return sc ? buildPhraseHints(sc, { phase: phaseRef.current, stepIndex: stepIndexRef.current }) : [];
+  }, []);
+
+  const speechRef = useRef<SpeechBudget>({
+    canListen: () => {
+      const cfg = configRef.current;
+      if (!cfg) return true;
+      return canRunPa({ paSeconds: speechSecondsRef.current } as UsageDay, cfg.caps);
+    },
+    addSeconds: (seconds: number) => {
+      if (!(seconds > 0)) return;
+      speechSecondsRef.current += seconds;
+      void addUsage(learningDate(new Date()), { paSeconds: seconds }).catch(() => undefined);
+    },
+  });
 
   // hintLevelはrefでも追跡し、更新関数を純粋に保つ（StrictModeの二重実行で
   // modelAnswersShownが二重カウントされるのを防ぐ）。
@@ -576,32 +536,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
     setHintLevel(next);
   }, []);
 
-  // --- 録音開始時のストリーミング評価セッション開始（M11） ---
-  // キャップ判定を録音前に行い、上限時は録音自体を開始させない。セッション開始は
-  // awaitしない（beginVoiceCaptureが内部でPromiseを保持し、録音開始をブロックしない）。
-  const beginVoiceTurn = useCallback(async (): Promise<boolean> => {
-    const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
-    const usage = await getUsageDay(learningDate(new Date()));
-    if (!canRunPa(usage, caps)) {
-      setInfo('今日の発音評価の上限に達しました（設定で変更できます）。テキスト入力なら続けられます。');
-      return false;
-    }
-    setInfo(null);
-    recordStartAtRef.current = Date.now();
-    // 録音〜評価〜AI応答の間、画面スリープでWebSocketが切れないよう先に取得する
-    // （多重acquireは冪等。releaseはsubmitVoice側のfinallyで従来どおり行われる）。
-    await wakeLockRef.current.acquire();
-    captureRef.current?.abort();
-    const sc = scenario;
-    captureRef.current = beginVoiceCapture({
-      mode: 'unscripted',
-      phraseHints: sc
-        ? buildPhraseHints(sc, { phase: phaseRef.current, stepIndex: stepIndexRef.current })
-        : [],
-    });
-    return true;
-  }, [scenario]);
-
+  // --- キーフレーズ予習（lessonモード。scripted発音評価・AIターンは起こさない） ---
   const beginKeyPhrase = useCallback(async (phraseEn: string): Promise<boolean> => {
     const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
     const usage = await getUsageDay(learningDate(new Date()));
@@ -630,7 +565,6 @@ export function useConversation(conversationId: string | undefined): UseConversa
     wakeLockRef.current.release();
   }, []);
 
-  // --- キーフレーズ予習（lessonモード。scripted発音評価・AIターンは起こさない） ---
   const submitKeyPhrase = useCallback(
     async (phraseEn: string, recording: RecordingResult): Promise<PaResult | null> => {
       if (processingRef.current) return null;
@@ -639,8 +573,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
       setInfo(null);
       const wakeLock = wakeLockRef.current;
       await wakeLock.acquire();
-      // 全体デッドライン（DESIGN.md §6a-2）: submitVoiceと同じ骨格。従来はscriptedに上限がなく、
-      // stream確定待ち+batch韻律2回で最悪48秒級「評価中」が続きえた。
+      // 全体デッドライン（DESIGN.md §6a-2）: stream確定待ち+batch韻律2回で「評価中」が長引かないよう上限を張る。
       const paDeadline = new AbortController();
       const deadlineId = window.setTimeout(() => paDeadline.abort(), PA_DEADLINE_SCRIPTED_MS);
       try {
@@ -648,7 +581,6 @@ export function useConversation(conversationId: string | undefined): UseConversa
         const today = learningDate(new Date());
 
         // ストリーミング評価（M11）: beginKeyPhraseで開始済みのセッションの確定を待つ。
-        // 日次キャップ判定は録音開始時（beginKeyPhrase）で実施済み。
         const capture = captureRef.current;
         captureRef.current = null;
         let result: AssessSpeechResult | null = null;
@@ -675,6 +607,7 @@ export function useConversation(conversationId: string | undefined): UseConversa
           });
           paSeconds = Math.round(pcm.length / WHISPER_SAMPLE_RATE);
         }
+        speechSecondsRef.current += paSeconds;
         await addUsage(today, { paSeconds });
 
         if (!result || result.pa.azureError) {
@@ -686,19 +619,19 @@ export function useConversation(conversationId: string | undefined): UseConversa
           return null;
         }
 
-        const saveAudio = (await getAppState<boolean>('saveTurnAudio')) ?? true;
+        const saveAudio = configRef.current?.saveTurnAudio ?? true;
         const turn: Turn = {
           role: 'user',
           // キーフレーズターンのtextは参照文（お手本のフレーズ）を保存する。
           // どのフレーズの練習かの逆引きと「全フレーズ✓」判定（XP計算）に使う
           text: phraseEn,
-          at: Date.now(),
+          at: nextAt(),
           phase: 'keyphrase',
           inputMode: 'voice',
           ...(saveAudio ? { audioBlob: recording.blob, mimeType: recording.mimeType } : {}),
           pa: result.pa,
         };
-        await appendTurn(turn);
+        appendTurn(turn);
         return result.pa;
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : '音声の処理に失敗しました。');
@@ -713,28 +646,47 @@ export function useConversation(conversationId: string | undefined): UseConversa
     [appendTurn],
   );
 
-  // --- キーフレーズ予習を終えて対話開始（多重呼び出しは無視） ---
-  const dialogueStartedRef = useRef(false);
-  const beginDialogue = useCallback(async () => {
+  // --- 対話開始（多重呼び出しは無視） ---
+  const beginDialogue = useCallback(() => {
     if (dialogueStartedRef.current) return;
     dialogueStartedRef.current = true;
     setDialogueStarted(true);
-    await runAiTurn();
+    // 会話中は画面スリープでWebSocketが切れないよう、終了までWake Lockを保持する。
+    void wakeLockRef.current.acquire();
+    runAiTurn();
   }, [runAiTurn]);
 
-  const finish = useCallback(async (): Promise<Conversation | null> => {
-    queueRef.current?.stop();
-    await persist({ status: 'completed', finishedAt: Date.now() });
-    // セッション終了パイプライン(sessionEnd.ts)が完了後の最新レコードを必要とするため返す
-    return conversationRef.current;
-  }, [persist]);
+  const closeSession = useCallback(async (status: 'completed' | 'abandoned'): Promise<FinishedConversation | null> => {
+    genRef.current += 1;
+    aiRef.current?.interrupt();
+    aiRef.current = null;
+    ttsRef.current?.close();
+    ttsRef.current = null;
+    wakeLockRef.current.release();
+    const writer = writerRef.current;
+    if (!writer || writer.sealed) return null;
+    const clips = clipsRef.current;
+    const saveAudio = configRef.current?.saveTurnAudio ?? true;
+    const next = writer.update((c) => ({
+      ...c,
+      status,
+      finishedAt: Date.now(),
+      // 音声は会話中は保存せず、完了時にまとめて添付する（中断した会話は再開できないため保存しない）。
+      turns: status === 'completed' && saveAudio ? attachTurnAudio(turnsRef.current, clips) : turnsRef.current,
+    }));
+    setConversation(next);
+    await writer.flush();
+    // 以降は sessionEnd.ts が唯一の書き手（遅れて完了したAIターン等による上書きを防ぐ）。
+    writer.seal();
+    return { conversation: writer.get(), clips };
+  }, []);
+
+  const finish = useCallback(() => closeSession('completed'), [closeSession]);
 
   const abandon = useCallback(async () => {
-    queueRef.current?.stop();
-    if (conversationRef.current?.status === 'active') {
-      await persist({ status: 'abandoned', finishedAt: Date.now() });
-    }
-  }, [persist]);
+    if (writerRef.current?.get().status !== 'active') return;
+    await closeSession('abandoned');
+  }, [closeSession]);
 
   const mode: ConversationMode = conversation?.mode ?? 'lesson';
   const dialogueUserTurnCount = turns.filter((t) => t.role === 'user' && t.phase !== 'keyphrase').length;
@@ -756,15 +708,19 @@ export function useConversation(conversationId: string | undefined): UseConversa
     aiDraft,
     error,
     info,
+    setInfo,
     hintLevel,
     showNextHint,
     modelAnswersShown,
-    beginVoiceTurn,
     beginKeyPhrase,
     handleAudioChunk,
     cancelVoiceCapture,
-    submitVoice,
+    submitUtterance,
     submitText,
+    interruptAi,
+    subscribeAi,
+    phraseHintsNow,
+    speech: speechRef.current,
     finish,
     abandon,
     latency,

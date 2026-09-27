@@ -68,6 +68,11 @@ export interface AssessSpeechOptions {
    * azureError入りの空PaResultで返る（会話は継続する）。
    */
   signal?: AbortSignal;
+  /**
+   * falseなら韻律（プロソディ）評価を行わない（M13: 会話後の発音評価は長めの発話を短時間で
+   * 何件も処理するため韻律を切って確定を速くする）。未指定は従来どおり（scriptedのみ韻律あり）。
+   */
+  prosody?: boolean;
 }
 
 export interface AssessSpeechResult {
@@ -737,7 +742,11 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
     const cachedFallback = await config.getPaProsodyFallback();
     const guardActive = hasProsodyFailedInSession();
     // 韻律は scripted のみ（§6a-2）。unscripted（自由会話）はF0で確定が遅いため無効化して高速化する。
-    const skipProsody = opts.mode === 'unscripted' || guardActive || shouldSkipProsody(cachedFallback, region, today);
+    const skipProsody =
+      opts.prosody === false ||
+      opts.mode === 'unscripted' ||
+      guardActive ||
+      shouldSkipProsody(cachedFallback, region, today);
 
     const errName = (e: unknown): string => (e instanceof Error ? e.name : String(e));
     let phrases: PhraseAssessment[];
@@ -746,7 +755,13 @@ export async function assessSpeech(wavBlob: Blob, opts: AssessSpeechOptions): Pr
 
     if (skipProsody) {
       const reason =
-        opts.mode === 'unscripted' ? '自由会話' : guardActive ? 'セッションガード' : '当日キャッシュ';
+        opts.prosody === false
+          ? '指定'
+          : opts.mode === 'unscripted'
+            ? '自由会話'
+            : guardActive
+              ? 'セッションガード'
+              : '当日キャッシュ';
       console.info(`[azurePaUnscripted] ${reason}により韻律なしで直接実行します。`);
       const t1 = performance.now();
       try {

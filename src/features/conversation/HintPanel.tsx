@@ -16,6 +16,9 @@ interface Props {
   hintLevel: 0 | 1 | 2 | 3;
   onNextHint: () => void;
   level: AppLevel;
+  /** 模範解答の再生開始・終了（M13: 再生中はハンズフリーの聞き取りを止め、お手本の音声を拾わない）。 */
+  onPlaybackStart?: () => void;
+  onPlaybackEnd?: () => void;
 }
 
 const HINT_BUTTON_LABEL: Record<0 | 1 | 2, string> = {
@@ -24,7 +27,7 @@ const HINT_BUTTON_LABEL: Record<0 | 1 | 2, string> = {
   2: '💡 模範解答を見る',
 };
 
-export function HintPanel({ step, hintLevel, onNextHint, level }: Props) {
+export function HintPanel({ step, hintLevel, onNextHint, level, onPlaybackStart, onPlaybackEnd }: Props) {
   const [playing, setPlaying] = useState(false);
   const [playError, setPlayError] = useState<string | null>(null);
 
@@ -32,6 +35,7 @@ export function HintPanel({ step, hintLevel, onNextHint, level }: Props) {
     if (playing) return;
     setPlaying(true);
     setPlayError(null);
+    onPlaybackStart?.();
     try {
       const voice = (await getAppState<string>('ttsVoice')) ?? 'en-US-JennyNeural';
       const rate = getLevelParams(level).ttsRate;
@@ -49,6 +53,7 @@ export function HintPanel({ step, hintLevel, onNextHint, level }: Props) {
       setPlayError(e instanceof Error ? e.message : '再生に失敗しました。');
     } finally {
       setPlaying(false);
+      onPlaybackEnd?.();
     }
   };
 

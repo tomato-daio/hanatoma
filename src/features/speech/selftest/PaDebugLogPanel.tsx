@@ -56,7 +56,7 @@ export function PaDebugLogPanel() {
 
   return (
     <section className="rounded-xl border border-neutral-200 p-3">
-      <h2 className="text-sm font-bold text-neutral-800">6. 直近のPA診断ログ</h2>
+      <h2 className="text-sm font-bold text-neutral-800">6. 直近の診断ログ（発音評価・会話の速さ）</h2>
       <p className="mt-1 text-xs text-neutral-500">
         発音評価の実行経過（最新{30}件）。遅い・失敗するときはこの内容をコピーして共有してください。
       </p>

@@ -57,11 +57,23 @@ export interface CallMessagesResult {
 export interface StreamMessagesOptions extends CallMessagesOptions {
   /** テキストのdeltaが届くたびに呼ばれる（逐次表示用）。 */
   onText: (delta: string) => void;
+  /**
+   * 中断シグナル（M13: AI発話中の割り込み・会話終了）。中断されたら例外にせず、
+   * それまでに届いたテキストと推定usageを aborted:true で返す（呼び出し後のusage加算は必ず行うため）。
+   */
+  signal?: AbortSignal;
 }
 
 export interface StreamMessagesResult {
   text: string;
   usage: Usage;
+  /** signalで中断された（textは途中まで。usage.outputTokensは推定値を含む）。 */
+  aborted?: boolean;
+}
+
+/** 中断時の出力トークン数の推定（英語はおよそ4文字=1トークン）。純関数。 */
+export function estimateOutputTokens(text: string): number {
+  return Math.ceil(text.length / 4);
 }
 
 export interface ConnectionTestResult {
@@ -235,10 +247,31 @@ function extractSseEvents(buffer: string): { events: string[]; rest: string } {
  * text_deltaが届くたびにonTextを呼ぶ（DESIGN.md §7a）。
  */
 export async function streamMessages(opts: StreamMessagesOptions): Promise<StreamMessagesResult> {
+  let text = '';
+  let usage: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+  const abortedResult = (): StreamMessagesResult => ({
+    text,
+    usage: { ...usage, outputTokens: Math.max(usage.outputTokens, estimateOutputTokens(text)) },
+    aborted: true,
+  });
+  try {
+    return await readStream(opts, (t) => (text = t), (u) => (usage = u));
+  } catch (err) {
+    if (opts.signal?.aborted) return abortedResult();
+    throw err;
+  }
+}
+
+async function readStream(
+  opts: StreamMessagesOptions,
+  setText: (text: string) => void,
+  setUsage: (usage: Usage) => void,
+): Promise<StreamMessagesResult> {
   const res = await fetch(API_URL, {
     method: 'POST',
     headers: buildHeaders(opts.apiKey),
     body: JSON.stringify(buildRequestBody(opts, true)),
+    signal: opts.signal,
   });
   if (!res.ok || !res.body) {
     throw await buildApiError(res);
@@ -268,14 +301,17 @@ export async function streamMessages(opts: StreamMessagesOptions): Promise<Strea
       if (parsed.type === 'message_start') {
         const message = parsed.data.message as { usage?: ApiUsage } | undefined;
         usage = mergeUsage(usage, message?.usage);
+        setUsage(usage);
       } else if (parsed.type === 'content_block_delta') {
         const delta = parsed.data.delta as { type?: string; text?: string } | undefined;
         if (delta?.type === 'text_delta' && typeof delta.text === 'string') {
           text += delta.text;
+          setText(text);
           opts.onText(delta.text);
         }
       } else if (parsed.type === 'message_delta') {
         usage = mergeUsage(usage, parsed.data.usage as ApiUsage | undefined);
+        setUsage(usage);
       }
     }
   }

@@ -110,18 +110,67 @@ export interface SynthesizeOptions {
  */
 const TTS_TIMEOUT_MS = 30_000;
 
-/**
- * テキストをAzure Neural TTSで合成し、音声データ(ArrayBuffer)を返す（DESIGN.md §6c）。
- * 出力はMP3（Audio24Khz48KBitRateMonoMp3）: decodeAudioDataで再生でき、
- * WAV(PCM)よりダウンロードサイズが1桁小さい（1文ごとに合成する会話用途の体感速度対策）。
- * 失敗時は日本語メッセージのErrorを投げる（TTS失敗は会話継続に必須ではないため、
- * 呼び出し側でcatchしてテキスト表示のみにフォールバックする）。
- */
-export async function synthesize(text: string, opts: SynthesizeOptions): Promise<ArrayBuffer> {
-  const cacheKey = ttsCacheKey(text, opts.voice, opts.rate);
-  const cached = sharedCache.get(cacheKey);
-  if (cached) return cached;
+type SpeechSdk = typeof import('microsoft-cognitiveservices-speech-sdk');
+type Synthesizer = import('microsoft-cognitiveservices-speech-sdk').SpeechSynthesizer;
 
+/**
+ * 1回ぶんの speakSsmlAsync をPromise化する（タイムアウト付き）。成功時はMP3のArrayBuffer。
+ * 失敗時は日本語メッセージのErrorを投げる。
+ */
+function speakSsmlOnce(
+  SpeechSDK: SpeechSdk,
+  synthesizer: Synthesizer,
+  text: string,
+  opts: SynthesizeOptions,
+): Promise<ArrayBuffer> {
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    // タイムアウト・完了コールバック・エラーコールバックのどれが先に来ても最初の1回だけ確定する。
+    let settled = false;
+    const timeoutId = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('AI音声の合成がタイムアウトしました。通信環境を確認してください。'));
+    }, TTS_TIMEOUT_MS);
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      fn();
+    };
+
+    synthesizer.speakSsmlAsync(
+      buildSsml(text, opts.voice, opts.rate),
+      (result) => {
+        if (
+          result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted &&
+          result.audioData &&
+          result.audioData.byteLength > 0
+        ) {
+          finish(() => resolve(result.audioData));
+        } else {
+          // Canceled等。errorDetailsにキー無効・リージョン不一致などの理由が入る。
+          const detail = result.errorDetails ? `（${result.errorDetails}）` : '';
+          finish(() => reject(new Error(`AI音声の合成に失敗しました${detail}。`)));
+        }
+      },
+      (err) => {
+        finish(() => reject(new Error(`AI音声の合成に失敗しました（${err}）。`)));
+      },
+    );
+  });
+}
+
+/** SDKの後片付け。失敗は合成結果に影響させない（PA側と同じ後片付け方針）。 */
+function closeQuietly(label: string, fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    console.warn(`[azureTts] ${label}で例外が発生しました。`, err);
+  }
+}
+
+/** SDK本体・キー・リージョンを解決して SpeechConfig を作る（キー未設定はthrow）。 */
+async function createSpeechConfig(): Promise<{ SpeechSDK: SpeechSdk; speechConfig: import('microsoft-cognitiveservices-speech-sdk').SpeechConfig }> {
   // SDK本体とappState解決は実際に合成するときだけ読み込む（ファイル冒頭コメント参照）。
   const [SpeechSDK, config] = await Promise.all([
     import('microsoft-cognitiveservices-speech-sdk'),
@@ -132,64 +181,150 @@ export async function synthesize(text: string, opts: SynthesizeOptions): Promise
     throw new Error('Azure APIキーが設定されていません。設定画面で登録してください。');
   }
   const region = await config.getAzureSpeechRegion();
-
   const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(apiKey, region);
   speechConfig.speechSynthesisOutputFormat = SpeechSDK.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3;
+  return { SpeechSDK, speechConfig };
+}
+
+/**
+ * テキストをAzure Neural TTSで合成し、音声データ(ArrayBuffer)を返す（DESIGN.md §6c）。
+ * 出力はMP3（Audio24Khz48KBitRateMonoMp3）: decodeAudioDataで再生でき、
+ * WAV(PCM)よりダウンロードサイズが1桁小さい。1回ごとに接続を作る単発用
+ * （キーフレーズ・模範解答・設定の試聴。会話中のAI発話は createTtsSession を使う）。
+ * 失敗時は日本語メッセージのErrorを投げる（TTS失敗は会話継続に必須ではないため、
+ * 呼び出し側でcatchしてテキスト表示のみにフォールバックする）。
+ */
+export async function synthesize(text: string, opts: SynthesizeOptions): Promise<ArrayBuffer> {
+  const cacheKey = ttsCacheKey(text, opts.voice, opts.rate);
+  const cached = sharedCache.get(cacheKey);
+  if (cached) return cached;
+
+  const { SpeechSDK, speechConfig } = await createSpeechConfig();
   // AudioConfigにnull: audioDataだけを受け取り、SDKによるspeaker直接出力を無効化する（§6c）。
   const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig, null);
-
   try {
-    const audioData = await new Promise<ArrayBuffer>((resolve, reject) => {
-      // タイムアウト・完了コールバック・エラーコールバックのどれが先に来ても最初の1回だけ確定する。
-      let settled = false;
-      const timeoutId = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        reject(new Error('AI音声の合成がタイムアウトしました。通信環境を確認してください。'));
-      }, TTS_TIMEOUT_MS);
-      const finish = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeoutId);
-        fn();
-      };
-
-      synthesizer.speakSsmlAsync(
-        buildSsml(text, opts.voice, opts.rate),
-        (result) => {
-          if (
-            result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted &&
-            result.audioData &&
-            result.audioData.byteLength > 0
-          ) {
-            finish(() => resolve(result.audioData));
-          } else {
-            // Canceled等。errorDetailsにキー無効・リージョン不一致などの理由が入る。
-            const detail = result.errorDetails ? `（${result.errorDetails}）` : '';
-            finish(() => reject(new Error(`AI音声の合成に失敗しました${detail}。`)));
-          }
-        },
-        (err) => {
-          finish(() => reject(new Error(`AI音声の合成に失敗しました（${err}）。`)));
-        },
-      );
-    });
-
+    const audioData = await speakSsmlOnce(SpeechSDK, synthesizer, text, opts);
     sharedCache.set(cacheKey, audioData);
     return audioData;
   } finally {
-    // closeの失敗は合成結果に影響させない（PA側と同じ後片付け方針）。
-    try {
+    closeQuietly('synthesizer.close', () =>
       synthesizer.close(undefined, (err) => {
         console.warn('[azureTts] synthesizer.closeがエラーを返しました。', err);
-      });
-    } catch (err) {
-      console.warn('[azureTts] synthesizer.closeで例外が発生しました。', err);
-    }
-    try {
-      speechConfig.close();
-    } catch (err) {
-      console.warn('[azureTts] speechConfig.closeで例外が発生しました。', err);
-    }
+      }),
+    );
+    closeQuietly('speechConfig.close', () => speechConfig.close());
   }
+}
+
+/** 会話中のAI発話用TTS（M13）。1本の接続を事前に張って使い回す。 */
+export interface TtsSession {
+  /** 事前接続する（会話画面を開いたときに呼ぶ。失敗は無視され、合成時に再接続される）。 */
+  warm(): void;
+  /** 合成する（キャッシュあり）。接続エラー時は作り直して1回だけ再試行する。 */
+  synth(text: string): Promise<ArrayBuffer>;
+  /** 進行中の合成を捨てて接続を作り直す（割り込みで古い文の合成が次のターンの前に並ばないように）。 */
+  reset(): void;
+  close(): void;
+}
+
+interface TtsHandle {
+  SpeechSDK: SpeechSdk;
+  speechConfig: import('microsoft-cognitiveservices-speech-sdk').SpeechConfig;
+  synthesizer: Synthesizer;
+  connection: import('microsoft-cognitiveservices-speech-sdk').Connection | null;
+}
+
+/**
+ * 会話1回ぶんのTTSセッションを作る（M13）。
+ * 文ごとに SpeechSynthesizer と WebSocket を作り直すと毎回ハンドシェイク（数百ms）が
+ * AI音声の出だしに乗るため、1つのシンセサイザを Connection.openConnection で事前接続して使い回す。
+ * SDKは同じシンセサイザへの要求を到着順に1件ずつ処理する（並行呼び出しは内部で順番待ち）。
+ */
+export function createTtsSession(opts: SynthesizeOptions): TtsSession {
+  let handle: Promise<TtsHandle> | null = null;
+  let generation = 0;
+  let closed = false;
+
+  const open = async (): Promise<TtsHandle> => {
+    const { SpeechSDK, speechConfig } = await createSpeechConfig();
+    const synthesizer = new SpeechSDK.SpeechSynthesizer(speechConfig, null);
+    let connection: TtsHandle['connection'] = null;
+    try {
+      connection = SpeechSDK.Connection.fromSynthesizer(synthesizer);
+      connection.openConnection();
+    } catch (err) {
+      console.warn('[azureTts] 事前接続に失敗しました（合成時に接続されます）。', err);
+    }
+    return { SpeechSDK, speechConfig, synthesizer, connection };
+  };
+
+  const get = (): Promise<TtsHandle> => {
+    if (!handle) {
+      const p = open();
+      handle = p;
+      // 開けなかった（キー未設定・SDK読込失敗）ときは次回に作り直す。
+      p.catch(() => {
+        if (handle === p) handle = null;
+      });
+    }
+    return handle;
+  };
+
+  const dispose = (p: Promise<TtsHandle> | null) => {
+    if (!p) return;
+    void p
+      .then((h) => {
+        closeQuietly('connection.closeConnection', () => h.connection?.closeConnection());
+        closeQuietly('connection.close', () => h.connection?.close());
+        closeQuietly('synthesizer.close', () => h.synthesizer.close());
+        closeQuietly('speechConfig.close', () => h.speechConfig.close());
+      })
+      .catch(() => undefined);
+  };
+
+  const session: TtsSession = {
+    warm() {
+      if (closed) return;
+      void get().catch(() => undefined);
+    },
+
+    async synth(text: string) {
+      if (closed) throw new Error('AI音声のセッションは終了しています。');
+      const cacheKey = ttsCacheKey(text, opts.voice, opts.rate);
+      const cached = sharedCache.get(cacheKey);
+      if (cached) return cached;
+      const gen = generation;
+      let audio: ArrayBuffer;
+      try {
+        const h = await get();
+        audio = await speakSsmlOnce(h.SpeechSDK, h.synthesizer, text, opts);
+      } catch (err) {
+        // 割り込み（reset）で捨てた接続の失敗や、終了後の失敗は再試行しない。
+        if (closed || gen !== generation) throw err;
+        // 接続切れ等: 作り直して1回だけ再試行する。
+        session.reset();
+        const h = await get();
+        audio = await speakSsmlOnce(h.SpeechSDK, h.synthesizer, text, opts);
+      }
+      sharedCache.set(cacheKey, audio);
+      return audio;
+    },
+
+    reset() {
+      generation += 1;
+      const old = handle;
+      handle = null;
+      dispose(old);
+      if (!closed) session.warm();
+    },
+
+    close() {
+      closed = true;
+      generation += 1;
+      const old = handle;
+      handle = null;
+      dispose(old);
+    },
+  };
+  return session;
 }

@@ -10,10 +10,18 @@
  *   6. RewardScreen用のSessionSummaryを返す
  *
  * この関数はfinish（会話のstatus='completed'保存）後に呼ぶこと。
+ *
+ * M13: 会話中は発音評価をしないため、1の添削（Sonnet）と並行して「会話後の発音評価」
+ * （deferredPa.ts。音声ターンを1件ずつAzureで評価）を行い、結果をターンへマージしてから
+ * 2以降（メトリクス・★・クエスト・レベル）を計算する。発音評価はSonnet完了の2秒後
+ * （最低でも開始から10秒、ひとくちは8秒）で打ち切り、上限30秒。採点できなかったターンは指標から外れる。
  */
 
 import {
+  addUsage,
+  getAppState,
   getQuestState,
+  getUsageDay,
   getUserProfile,
   listConversations,
   listExpressions,
@@ -33,10 +41,13 @@ import {
 } from '../../lib/game/quests';
 import { starsFromComposite } from '../../lib/game/stars';
 import { calcSessionXp } from '../../lib/game/xp';
-import type { Conversation, CorrectionReport, Scenario } from '../../lib/types';
+import { DEFAULT_DAILY_CAPS, type Conversation, type CorrectionReport, type DailyCaps, type Scenario } from '../../lib/types';
 import { buildStreakInfo, getIsoWeekId, loadSisterData } from '../game/homeData';
 import type { SessionSummary } from '../game/sessionSummary';
-import { generateCorrectionReport } from '../report/generateReport';
+import { requestCorrection, saveCorrectionReport } from '../report/generateReport';
+import { assessSpeech } from '../speech/azurePaUnscripted';
+import { logPaDebug } from '../speech/paDebugLog';
+import { mergeDeferredPa, runDeferredPa, selectClipsForPa, type RunDeferredPaResult, type TurnClip } from './deferredPa';
 import { getReviewDates } from '../review/reviewStore';
 import { getScenarioById } from '../scenarios/loadScenarios';
 
@@ -66,33 +77,93 @@ function allKeyPhrasesDone(conversation: Conversation, scenario: Scenario): bool
   );
 }
 
+/** 会話後の発音評価の打ち切り（DESIGN.md §6a-3）。 */
+const DEFERRED_PA_GRACE_AFTER_REPORT_MS = 2_000;
+const DEFERRED_PA_MIN_MS = 10_000;
+const DEFERRED_PA_MIN_MS_BITE = 8_000;
+const DEFERRED_PA_HARD_CAP_MS = 30_000;
+
+export interface RunSessionEndOptions {
+  /** 会話後に発音評価する音声ターン（useConversation.finish の戻り値）。 */
+  clips?: TurnClip[];
+  /** 発音評価の進み具合（オーバーレイ表示用）。 */
+  onPaProgress?: (done: number, total: number) => void;
+}
+
 export async function runSessionEnd(
-  conversation: Conversation,
+  finishedConversation: Conversation,
   modelAnswersShown: number,
+  options: RunSessionEndOptions = {},
 ): Promise<SessionEndResult> {
   const today = learningDate(new Date());
-  const scenario = await getScenarioById(conversation.scenarioId);
+  const scenario = await getScenarioById(finishedConversation.scenarioId);
   if (!scenario) {
     throw new Error('シナリオが見つかりません。');
   }
   const profile = await getUserProfile();
+  const sisterData = await loadSisterData();
 
-  // --- 1. 添削レポート（bite/diagnosticはSonnetを呼ばない: §4） ---
+  // --- 1. 添削レポート（bite/diagnosticはSonnetを呼ばない: §4） ‖ 会話後の発音評価 ---
+  const wantsReport =
+    finishedConversation.mode === 'lesson' || finishedConversation.mode === 'quick' || finishedConversation.mode === 'boss';
+  const startedAt = Date.now();
+  const paAbort = new AbortController();
+  const hardCapId = setTimeout(() => paAbort.abort(), DEFERRED_PA_HARD_CAP_MS);
+  let paJob: Promise<RunDeferredPaResult> = Promise.resolve({ results: new Map(), sentSeconds: 0 });
+  const clips = options.clips ?? [];
+  let selectedCount = 0;
+  if (clips.length > 0) {
+    const caps = (await getAppState<DailyCaps>('dailyCaps')) ?? DEFAULT_DAILY_CAPS;
+    const usage = await getUsageDay(today);
+    const selected = selectClipsForPa(clips, { capRemainingSec: caps.paMinutes * 60 - usage.paSeconds });
+    selectedCount = selected.length;
+    paJob = runDeferredPa(selected, {
+      assess: assessSpeech,
+      signal: paAbort.signal,
+      ...(options.onPaProgress ? { onProgress: options.onPaProgress } : {}),
+      log: logPaDebug,
+    });
+  }
+  const correction = wantsReport
+    ? await requestCorrection(
+        finishedConversation,
+        scenario,
+        profile.level,
+        sisterData?.weakPhonemes.map((w) => w.phoneme) ?? [],
+      )
+    : null;
+  // 添削が終わったら、発音評価はもう少しだけ待って打ち切る（待たせすぎない）。
+  const minMs = wantsReport ? DEFERRED_PA_MIN_MS : DEFERRED_PA_MIN_MS_BITE;
+  const graceId = setTimeout(
+    () => paAbort.abort(),
+    Math.max(wantsReport ? DEFERRED_PA_GRACE_AFTER_REPORT_MS : 0, startedAt + minMs - Date.now()),
+  );
+  const pa = await paJob;
+  clearTimeout(graceId);
+  clearTimeout(hardCapId);
+  if (pa.sentSeconds > 0) await addUsage(today, { paSeconds: pa.sentSeconds });
+  if (clips.length > 0) {
+    logPaDebug(
+      `[会話後PA] ${pa.results.size}/${selectedCount}件採点（音声ターン${clips.length}件・${Math.round((Date.now() - startedAt) / 100) / 10}s）`,
+    );
+  }
+
+  // 発音スコアをターンへ書き戻して保存（以降の集計・レポートはマージ後のターンで行う）。
+  const conversation: Conversation =
+    pa.results.size > 0
+      ? { ...finishedConversation, turns: mergeDeferredPa(finishedConversation.turns, pa.results) }
+      : finishedConversation;
+  if (conversation !== finishedConversation) await putConversation(conversation);
+
   let report: CorrectionReport | null = null;
   let reportError: string | undefined;
-  const wantsReport = conversation.mode === 'lesson' || conversation.mode === 'quick' || conversation.mode === 'boss';
-  const sisterData = await loadSisterData();
-  if (wantsReport) {
-    const result = await generateCorrectionReport(
-      conversation,
-      scenario,
-      profile.level,
-      sisterData?.weakPhonemes.map((w) => w.phoneme) ?? [],
-    );
-    if ('error' in result) {
-      reportError = result.error;
+  if (correction) {
+    if ('error' in correction) {
+      reportError = correction.error;
     } else {
-      report = result;
+      const saved = await saveCorrectionReport(correction.output, conversation);
+      if ('error' in saved) reportError = saved.error;
+      else report = saved;
     }
   }
 
